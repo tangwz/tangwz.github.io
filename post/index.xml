@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on Tangwz - 我想要说的，前人们都说过了</title>
+    <link>http://localhost:1313/post/</link>
+    <description>Recent content in Posts on Tangwz - 我想要说的，前人们都说过了</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <lastBuildDate>Wed, 31 Jul 2019 00:00:00 +0000</lastBuildDate>
+    
+	<atom:link href="http://localhost:1313/post/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>Go 语言实现多路归并排序</title>
+      <link>http://localhost:1313/post/parallel-merge-sort-in-go/</link>
+      <pubDate>Wed, 31 Jul 2019 00:00:00 +0000</pubDate>
+      
+      <guid>http://localhost:1313/post/parallel-merge-sort-in-go/</guid>
+      <description>Go 语言实现多路归并排序 第一个版本 基于 goroutine ，我们很容易将串行的归并排序改为并行的归并排序，只需要将每个 mergeSort 多个 goroutine，再使用 sync.WaitGroup 等待所有</description>
+    </item>
+    
+    <item>
+      <title>The one on dynamic programming</title>
+      <link>http://localhost:1313/post/the-one-on-dynamic-programming/</link>
+      <pubDate>Sat, 25 May 2019 00:00:00 +0000</pubDate>
+      
+      <guid>http://localhost:1313/post/the-one-on-dynamic-programming/</guid>
+      <description>翻译自：https://blogarithms.github.io/articles/2019-03/cracking-dp-part-on</description>
+    </item>
+    
+  </channel>
+</rss>
