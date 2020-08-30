@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Tangwz - 我想要说的，前人们都说过了</title>
-    <link>http://localhost:1313/</link>
-    <description>Recent content on Tangwz - 我想要说的，前人们都说过了</description>
+    <title>分布式 on Tangwz - 我想要说的，前人们都说过了</title>
+    <link>http://localhost:1313/tags/%E5%88%86%E5%B8%83%E5%BC%8F/</link>
+    <description>Recent content in 分布式 on Tangwz - 我想要说的，前人们都说过了</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
     <lastBuildDate>Tue, 18 Aug 2020 00:00:00 +0000</lastBuildDate>
     
-	<atom:link href="http://localhost:1313/index.xml" rel="self" type="application/rss+xml" />
+	<atom:link href="http://localhost:1313/tags/%E5%88%86%E5%B8%83%E5%BC%8F/index.xml" rel="self" type="application/rss+xml" />
     
     
     <item>
@@ -19,15 +19,6 @@
       
       <guid>http://localhost:1313/post/intro-distributed-system/</guid>
       <description>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解</description>
-    </item>
-    
-    <item>
-      <title>关于</title>
-      <link>http://localhost:1313/about/</link>
-      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
-      
-      <guid>http://localhost:1313/about/</guid>
-      <description>建设中……</description>
     </item>
     
   </channel>
