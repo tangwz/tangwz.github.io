@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-  <title>漫谈分布式共识问题 - Tangwz - 我想要说的，前人们都说过了</title>
+  <title>分布式系统的核心：共识问题 - Tangwz - 我想要说的，前人们都说过了</title>
   <meta name="renderer" content="webkit" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
 
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
 
 
-<meta name="author" content="Tangwz" /><meta name="description" content="写在前面 混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
+<meta name="author" content="Tangwz" /><meta name="description" content="混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
 
 
 
@@ -39,24 +39,24 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.css" integrity="sha256-7TyXnr2YU040zfSP+rEcz29ggW4j56/ujTPwjMzyqFY=" crossorigin="anonymous">
 
 
-<meta property="og:title" content="漫谈分布式共识问题" />
-<meta property="og:description" content="写在前面 混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语" />
+<meta property="og:title" content="分布式系统的核心：共识问题" />
+<meta property="og:description" content="混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成" />
 <meta property="og:type" content="article" />
 <meta property="og:url" content="http://localhost:1313/post/consensus/" />
 <meta property="article:published_time" content="2020-09-06T00:00:00+00:00" />
 <meta property="article:modified_time" content="2020-09-06T00:00:00+00:00" />
-<meta itemprop="name" content="漫谈分布式共识问题">
-<meta itemprop="description" content="写在前面 混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语">
+<meta itemprop="name" content="分布式系统的核心：共识问题">
+<meta itemprop="description" content="混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成">
 <meta itemprop="datePublished" content="2020-09-06T00:00:00+00:00" />
 <meta itemprop="dateModified" content="2020-09-06T00:00:00+00:00" />
-<meta itemprop="wordCount" content="5382">
+<meta itemprop="wordCount" content="5383">
 
 
 
 <meta itemprop="keywords" content="分布式," />
 <meta name="twitter:card" content="summary"/>
-<meta name="twitter:title" content="漫谈分布式共识问题"/>
-<meta name="twitter:description" content="写在前面 混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语"/>
+<meta name="twitter:title" content="分布式系统的核心：共识问题"/>
+<meta name="twitter:description" content="混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成"/>
 
 <!--[if lte IE 9]>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
@@ -123,14 +123,14 @@
           <article class="post">
     
     <header class="post-header">
-      <h1 class="post-title">漫谈分布式共识问题</h1>
+      <h1 class="post-title">分布式系统的核心：共识问题</h1>
 
       <div class="post-meta">
         <span class="post-time"> 2020-09-06 </span>
         <div class="post-category">
             <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
             </div>
-          <span class="more-meta"> 约 5382 字 </span>
+          <span class="more-meta"> 约 5383 字 </span>
           <span class="more-meta"> 预计阅读 11 分钟 </span>
         
       </div>
@@ -143,11 +143,7 @@
   <ul>
     <li>
       <ul>
-        <li><a href="#写在前面">写在前面</a>
-          <ul>
-            <li><a href="#混乱的一致性问题">混乱的“一致性”问题</a></li>
-          </ul>
-        </li>
+        <li><a href="#混乱的一致性问题">混乱的“一致性”问题</a></li>
         <li><a href="#共识问题">共识问题</a></li>
         <li><a href="#为什么要达成共识">为什么要达成共识？</a></li>
         <li><a href="#系统模型">系统模型</a></li>
@@ -173,8 +169,7 @@
   </div>
 </div>
     <div class="post-content">
-      <h2 id="写在前面">写在前面</h2>
-<h3 id="混乱的一致性问题">混乱的“一致性”问题</h3>
+      <h2 id="混乱的一致性问题">混乱的“一致性”问题</h2>
 <p>Consensus != Consistency</p>
 <p>受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成共识”和“达成一致”是一个意思，但是必须要说明在这里讨论的是 consensus 问题，使用“共识”来表达更清晰一些。而 CAP 定理中的 C 和数据库 ACID 的 C 才是真正的“一致性”—— consistency 问题，尽管这两个 C 讨论的也不是同一个问题，但在这里不展开。</p>
 <p>为了规范和清晰表达，在讨论 consensus 问题的时候统一使用“共识”一词。</p>
@@ -185,7 +180,7 @@
 小王：“喝咖啡怎么样？”
 小明：“好啊，那就来杯咖啡。”</p>
 <p>在上面的场景中，小王<strong>提议</strong>喝一杯咖啡，小明表示<strong>同意</strong>，两人就“喝杯咖啡”这个问题达成共识，并根据这个结果采取行动。这就是生活中的共识。</p>
-<p>在分布式系统中，<strong>共识</strong>就是系统中的多个节点对某个值达成一致。共识问题可以用数学语言来描述：一个分布式系统包含 n 个进程 {0, 1, 2,&hellip;, n-1}，每个进程都有一个初值，进程之间互相通信，设计一种算法使得尽管出现故障，进程们仍协商出某个不可撤销的最终决定值，且每次执行都满足一下三个性质：</p>
+<p>在分布式系统中，<strong>共识</strong>就是系统中的多个节点对某个值达成一致。共识问题可以用数学语言来描述：一个分布式系统包含 n 个进程 {0, 1, 2,&hellip;, n-1}，每个进程都有一个初值，进程之间互相通信，设计一种算法使得尽管出现故障，进程们仍协商出某个不可撤销的最终决定值，且每次执行都满足以下三个性质：</p>
 <ul>
 <li>终止性（Termination）：所有正确的进程最终都会认同某一个值。</li>
 <li>协定性（Agreement）：所有正确的进程认同的值都是同一个值。</li>
@@ -211,7 +206,7 @@
 </ul>
 <p>不仅如此，达成共识还可以解决分布式系统中的以下经典问题：</p>
 <ul>
-<li>互斥（Mutual exclusion）：哪个进程进入临界区访问资源？</li>
+<li>互斥（Mutual exclusion）：哪个进程进入临界区访问资源？分布式锁？</li>
 <li>选主（Leader election）：在单主复制的数据库，需要所有节点就哪个节点是领导者达成共识。如果一些由于网络故障而无法与其他节点通信，可能会产生两个领导者，它们都会接受写入，数据就可能会产生分歧，从而导致数据不一致或丢失。</li>
 <li>原子提交（Atomic commit）：跨多节点或跨多分区事务的数据库中，一个事务可能在某些节点上失败，但在其他节点上成功。如果我们想要维护这种事务的原子性，必须让所有节点对事务的结果达成共识：要么全部提交，要么全部中止/回滚。</li>
 </ul>
@@ -259,7 +254,7 @@
 <p>例如，两阶段提交事务使用持久存储，能够从崩溃中恢复。如果一个进程崩溃，它会被重启（自动重启或由管理员重启）。进程在程序的关键点的持久存储中保留了足够多的信息，以便在崩溃和重启时能够利用这些数据继续工作。换句话说故障程序也能够像正确的进程一样工作，只是它有时候需要很长时间来执行一个恢复处理。</p>
 <p>故障屏蔽被应用在各种系统设计中。</p>
 <h3 id="2使用故障检测器failure-detectors">2、使用故障检测器（Failure detectors）</h3>
-<p>将异步系统转换为同步系统的第二站办法就是引入故障检测器，进程可以认为在超过一定时间没有响应的进程已经故障。一种很常见的故障检测器的实现：超时（timeout）。</p>
+<p>将异步系统转换为同步系统的第二个办法就是引入故障检测器，进程可以认为在超过一定时间没有响应的进程已经故障。一种很常见的故障检测器的实现：超时（timeout）。</p>
 <p>但是，这种办法要求故障检测器是精确的。如果故障器不精确的话，系统可能放弃一个正常的进程；如果超时时间设定得很长，进程就需要等待（并且不能执行任何工作）较长的时间才能得出出错的结论。这个方法甚至有可能导致网络分区。</p>
 <p>解决办法是使用“不完美”的故障检测器。Chanadra 和 Toueg 在 &ldquo;<a href="https://dl.acm.org/doi/10.1145/234533.234549">The weakest failure detector for solving consensus</a><sup id="fnref:6"><a href="#fn:6" class="footnote-ref" role="doc-noteref">6</a></sup>&rdquo; 中分析了一个故障检测器必须拥有的两个属性：</p>
 <ul>
@@ -275,7 +270,7 @@
 <p>该论文还证明了，在异步系统中，我们不能只依靠消息来实现一个最终弱故障检测器。但是，实际的故障检测器能够根据观察到的响应时间调节它的超时值。如果一个进程或者一个到检测器的连接很慢，那么超时值就会增加，那么错误地怀疑一个进程的情况将变得很少。从实用目的来看，这样的弱故障检测器与理想的最终弱故障检测器十分接近。</p>
 <h3 id="3使用随机性算法non-determinism">3、使用随机性算法(Non-Determinism)</h3>
 <p>这种解决不可能性的技术是引入一个随机算法，随机算法的输出不仅取决于外部的输入，还取决于执行过程中的随机概率。因此，给定两个完全相同的输入，该算法可能会输出两个不同的值。随机性算法使得“敌人”不能有效地阻碍达成共识。</p>
-<p>和传统选出领导、节点再协作的模式不同，像区块链这类共识是基于哪个节点最快计算出难题来达成的。区块链中每一个新区快都由本轮最快计算出数学难题的节点添加，整个分布式网络持续不断地建设这条有时间戳的区块链，而承载了最多计算量的区块链正是达成了共识的主链（即累积计算难度最大）。</p>
+<p>和传统选出领导、节点再协作的模式不同，像区块链这类共识是基于哪个节点最快计算出难题来达成的。区块链中每一个新区块都由本轮最快计算出数学难题的节点添加，整个分布式网络持续不断地建设这条有时间戳的区块链，而承载了最多计算量的区块链正是达成了共识的主链（即累积计算难度最大）。</p>
 <p>比特币使用了 PoW（Proof of Work）来维持共识，一些其它加密货币（如 DASH、NEO）使用 PoS（Proof of Stake），还有一些（如 Ripple）使用分布式账本（ledger）。</p>
 <p>但是，这些随机性算法都无法<strong>严格</strong>满足安全性(safety)。攻击者可以囤积巨量算力，从而控制或影响网络的大量正常节点，例如控制 50% 以上网络算力即可以对 PoW 发起<a href="https://en.wikipedia.org/wiki/Sybil_attack">女巫攻击（Sybil Attack）</a>。只不过前提是攻击者需要付出一大笔资金来囤积算力，实际中这种风险性很低，如果有这么强的算力还不如直接挖矿赚取收益。</p>
 <h2 id="同步系统中的共识">同步系统中的共识</h2>
