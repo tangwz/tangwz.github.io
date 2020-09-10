@@ -2,31 +2,31 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>计算机科学 on Tangwz - 我想要说的，前人们都说过了</title>
-    <link>http://localhost:1313/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/</link>
+    <link>https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/</link>
     <description>Recent content in 计算机科学 on Tangwz - 我想要说的，前人们都说过了</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
     <lastBuildDate>Sun, 06 Sep 2020 00:00:00 +0000</lastBuildDate>
     
-	<atom:link href="http://localhost:1313/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+	<atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
     
     
     <item>
       <title>分布式系统的核心：共识问题</title>
-      <link>http://localhost:1313/post/consensus/</link>
+      <link>https://tangwz.com/post/consensus/</link>
       <pubDate>Sun, 06 Sep 2020 00:00:00 +0000</pubDate>
       
-      <guid>http://localhost:1313/post/consensus/</guid>
+      <guid>https://tangwz.com/post/consensus/</guid>
       <description>混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成</description>
     </item>
     
     <item>
       <title>认识分布式系统</title>
-      <link>http://localhost:1313/post/intro-distributed-system/</link>
+      <link>https://tangwz.com/post/intro-distributed-system/</link>
       <pubDate>Tue, 18 Aug 2020 00:00:00 +0000</pubDate>
       
-      <guid>http://localhost:1313/post/intro-distributed-system/</guid>
+      <guid>https://tangwz.com/post/intro-distributed-system/</guid>
       <description>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解</description>
     </item>
     
