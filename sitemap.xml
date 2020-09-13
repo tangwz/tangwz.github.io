@@ -3,28 +3,49 @@
   
   <url>
     <loc>https://tangwz.com/categories/</loc>
-    <lastmod>2020-09-06T00:00:00+00:00</lastmod>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  
+  <url>
+    <loc>https://tangwz.com/tags/git/</loc>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
   
   <url>
     <loc>https://tangwz.com/post/</loc>
-    <lastmod>2020-09-06T00:00:00+00:00</lastmod>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
   
   <url>
     <loc>https://tangwz.com/tags/</loc>
-    <lastmod>2020-09-06T00:00:00+00:00</lastmod>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
   
   <url>
     <loc>https://tangwz.com/</loc>
-    <lastmod>2020-09-06T00:00:00+00:00</lastmod>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  
+  <url>
+    <loc>https://tangwz.com/post/git-merge-vs-rebase/</loc>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  
+  <url>
+    <loc>https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/</loc>
+    <lastmod>2020-09-13T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
@@ -38,13 +59,6 @@
   
   <url>
     <loc>https://tangwz.com/post/consensus/</loc>
-    <lastmod>2020-09-06T00:00:00+00:00</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  
-  <url>
-    <loc>https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/</loc>
     <lastmod>2020-09-06T00:00:00+00:00</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.5</priority>

@@ -7,10 +7,19 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Sun, 06 Sep 2020 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Sun, 13 Sep 2020 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://tangwz.com/post/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
+      <link>https://tangwz.com/post/git-merge-vs-rebase/</link>
+      <pubDate>Sun, 13 Sep 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/git-merge-vs-rebase/</guid>
+      <description>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主干的代码同步，还要一次只能有一条 commit。过程中我错误地使用了一把 git merge 和 git r</description>
+    </item>
     
     <item>
       <title>分布式系统的核心：共识问题</title>
