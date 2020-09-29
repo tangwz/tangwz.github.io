@@ -23,7 +23,7 @@
 
 
 
-<meta name="generator" content="Hugo 0.74.3 with theme even" />
+<meta name="generator" content="Hugo 0.75.1 with theme even" />
 
 
 <link rel="canonical" href="https://tangwz.com/post/git-merge-vs-rebase/" />
@@ -190,22 +190,22 @@
 <table>
 <thead>
 <tr>
-<th align="center">git merge master</th>
-<th align="center">git rebase master</th>
+<th style="text-align:center">git merge master</th>
+<th style="text-align:center">git rebase master</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td align="center">合并 <code>master</code> 的记录到分支，合并之后的所有 <code>commit</code> 会按提交时间从新到旧排列。</td>
-<td align="center">当前分支的 <code>HEAD</code> 会移动到 master 的结尾，但会变成一个新的 <code>commit</code>。</td>
+<td style="text-align:center">合并 <code>master</code> 的记录到分支，合并之后的所有 <code>commit</code> 会按提交时间从新到旧排列。</td>
+<td style="text-align:center">当前分支的 <code>HEAD</code> 会移动到 master 的结尾，但会变成一个新的 <code>commit</code>。</td>
 </tr>
 <tr>
-<td align="center">用 <code>git log --graph</code> 查看的话，会有一条<strong>丑陋的</strong>边！</td>
-<td align="center"><code>git log --graph</code> 是一条漂亮的直线</td>
+<td style="text-align:center">用 <code>git log --graph</code> 查看的话，会有一条<strong>丑陋的</strong>边！</td>
+<td style="text-align:center"><code>git log --graph</code> 是一条漂亮的直线</td>
 </tr>
 <tr>
-<td align="center">保持了所有 <code>commit</code> 的连贯性</td>
-<td align="center"><code>commit</code> 历史被修改了，<code>3b36f32</code> 被修改成了 <code>a018520</code></td>
+<td style="text-align:center">保持了所有 <code>commit</code> 的连贯性</td>
+<td style="text-align:center"><code>commit</code> 历史被修改了，<code>3b36f32</code> 被修改成了 <code>a018520</code></td>
 </tr>
 </tbody>
 </table>
@@ -261,7 +261,11 @@
           <a href="/tags/git/">git</a>
           </div>
       <nav class="post-nav">
-        
+        <a class="prev" href="/post/basic-paxos/">
+            <i class="iconfont icon-left"></i>
+            <span class="prev-text nav-default">理解 Paxos（含伪代码）</span>
+            <span class="prev-text nav-mobile">上一篇</span>
+          </a>
         <a class="next" href="/post/consensus/">
             <span class="next-text nav-default">分布式系统的核心：共识问题</span>
             <span class="next-text nav-mobile">下一篇</span>

@@ -7,11 +7,7 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Sun, 13 Sep 2020 00:00:00 +0000</lastBuildDate>
-    
-	<atom:link href="https://tangwz.com/tags/git/index.xml" rel="self" type="application/rss+xml" />
-    
-    
+    <lastBuildDate>Sun, 13 Sep 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/tags/git/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
       <link>https://tangwz.com/post/git-merge-vs-rebase/</link>

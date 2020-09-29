@@ -7,10 +7,15 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Sun, 06 Sep 2020 00:00:00 +0000</lastBuildDate>
-    
-	<atom:link href="https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/index.xml" rel="self" type="application/rss+xml" />
-    
+    <lastBuildDate>Tue, 29 Sep 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>理解 Paxos（含伪代码）</title>
+      <link>https://tangwz.com/post/basic-paxos/</link>
+      <pubDate>Tue, 29 Sep 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/basic-paxos/</guid>
+      <description>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法</description>
+    </item>
     
     <item>
       <title>分布式系统的核心：共识问题</title>
