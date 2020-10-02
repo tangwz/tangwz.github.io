@@ -49,7 +49,7 @@
 <meta itemprop="description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法">
 <meta itemprop="datePublished" content="2020-09-29T00:00:00+00:00" />
 <meta itemprop="dateModified" content="2020-09-29T00:00:00+00:00" />
-<meta itemprop="wordCount" content="3091">
+<meta itemprop="wordCount" content="3164">
 
 
 
@@ -134,7 +134,7 @@
         <div class="post-category">
             <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
             </div>
-          <span class="more-meta"> 约 3091 字 </span>
+          <span class="more-meta"> 约 3164 字 </span>
           <span class="more-meta"> 预计阅读 7 分钟 </span>
         
       </div>
@@ -168,6 +168,7 @@
             <li><a href="#响应也叫-accept-阶段">响应（也叫 ACCEPT 阶段）：</a></li>
           </ul>
         </li>
+        <li><a href="#notes">Notes</a></li>
       </ul>
     </li>
     <li><a href="#一些例子">一些例子</a>
@@ -330,7 +331,9 @@
     <span class="k">do</span> <span class="n">not</span> <span class="n">respond</span> <span class="p">(</span><span class="n">or</span> <span class="n">respond</span> <span class="n">with</span> <span class="n">a</span> <span class="s">&#34;fail&#34;</span> <span class="n">message</span><span class="p">)</span>
 </code></pre></td></tr></table>
 </div>
-</div><h1 id="一些例子">一些例子</h1>
+</div><h2 id="notes">Notes</h2>
+<p>值得注意的是，只有 Proposer 知道某个提案的值是否被 Chosen，如果其它节点想知道某个值是否被 Chosen，那就必须用该值发起一次提案，执行一次 Paxos 算法。</p>
+<h1 id="一些例子">一些例子</h1>
 <h2 id="情况-1提案已-chosen">情况 1：提案已 Chosen</h2>
 <p><img src="/media/images/20200929-basic-paxos/example-1.jpg" alt="情况 1：提案已 Chosen"></p>
 <ol>
