@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>Paxos 的变种（一）：Multi-Paxos - Tangwz - 我想要说的，前人们都说过了</title>
+  <meta name="renderer" content="webkit" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+<meta name="theme-color" content="#f8f5ec" />
+<meta name="msapplication-navbutton-color" content="#f8f5ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
+
+
+<meta name="author" content="Tangwz" /><meta name="description" content="分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
+
+
+
+
+
+
+<meta name="generator" content="Hugo 0.75.1 with theme even" />
+
+
+<link rel="canonical" href="https://tangwz.com/post/multi-paxos/" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="manifest" href="/manifest.json">
+<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+
+
+
+<link href="/sass/main.min.651e6917abb0239242daa570c2bec9867267bbcd83646da5a850afe573347b44.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.css" integrity="sha256-7TyXnr2YU040zfSP+rEcz29ggW4j56/ujTPwjMzyqFY=" crossorigin="anonymous">
+
+
+<meta property="og:title" content="Paxos 的变种（一）：Multi-Paxos" />
+<meta property="og:description" content="分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://tangwz.com/post/multi-paxos/" />
+<meta property="article:published_time" content="2020-10-18T00:00:00+00:00" />
+<meta property="article:modified_time" content="2020-10-18T00:00:00+00:00" />
+<meta itemprop="name" content="Paxos 的变种（一）：Multi-Paxos">
+<meta itemprop="description" content="分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受">
+<meta itemprop="datePublished" content="2020-10-18T00:00:00+00:00" />
+<meta itemprop="dateModified" content="2020-10-18T00:00:00+00:00" />
+<meta itemprop="wordCount" content="4541">
+
+
+
+<meta itemprop="keywords" content="分布式," />
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="Paxos 的变种（一）：Multi-Paxos"/>
+<meta name="twitter:description" content="分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受"/>
+
+<!--[if lte IE 9]>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
+<![endif]-->
+
+<!--[if lt IE 9]>
+  <script src="https://cdn.jsdelivr.net/npm/html5shiv@3.7.3/dist/html5shiv.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/respond.js@1.4.2/dest/respond.min.js"></script>
+<![endif]-->
+
+</head>
+<body>
+  <div id="mobile-navbar" class="mobile-navbar">
+  <div class="mobile-header-logo">
+    <a href="/" class="logo">Tangwz 的博客</a>
+  </div>
+  <div class="mobile-navbar-icon">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+</div>
+<nav id="mobile-menu" class="mobile-menu slideout-menu">
+  <ul class="mobile-menu-list">
+    <a href="/">
+        <li class="mobile-menu-item">主页</li>
+      </a><a href="/post/">
+        <li class="mobile-menu-item">归档</li>
+      </a><a href="/tags/">
+        <li class="mobile-menu-item">标签</li>
+      </a><a href="/categories/">
+        <li class="mobile-menu-item">分类</li>
+      </a><a href="/about">
+        <li class="mobile-menu-item">关于</li>
+      </a><a href="/index.xml">
+        <li class="mobile-menu-item">RSS</li>
+      </a>
+  </ul>
+</nav>
+  <div class="container" id="mobile-panel">
+    <header id="header" class="header">
+        <div class="logo-wrapper">
+  <a href="/" class="logo">Tangwz 的博客</a>
+</div>
+
+<nav class="site-navbar">
+  <ul id="menu" class="menu">
+    <li class="menu-item">
+        <a class="menu-item-link" href="/">主页</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/post/">归档</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/tags/">标签</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/categories/">分类</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/about">关于</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/index.xml">RSS</a>
+      </li>
+  </ul>
+</nav>
+    </header>
+
+    <main id="main" class="main">
+      <div class="content-wrapper">
+        <div id="content" class="content">
+          <article class="post">
+    
+    <header class="post-header">
+      <h1 class="post-title">Paxos 的变种（一）：Multi-Paxos</h1>
+
+      <div class="post-meta">
+        <span class="post-time"> 2020-10-18 </span>
+        <div class="post-category">
+            <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
+            </div>
+          <span class="more-meta"> 约 4541 字 </span>
+          <span class="more-meta"> 预计阅读 10 分钟 </span>
+        
+      </div>
+    </header>
+
+    <div class="post-toc" id="post-toc">
+  <h2 class="post-toc-title">文章目录</h2>
+  <div class="post-toc-content always-active">
+    <nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#如何确定是哪条日志记录">如何确定是哪条日志记录？</a>
+          <ul>
+            <li><a href="#举个例子">举个例子</a></li>
+          </ul>
+        </li>
+        <li><a href="#leader-选举">Leader 选举</a></li>
+        <li><a href="#减少-prepare-请求">减少 Prepare 请求</a></li>
+        <li><a href="#副本的完整性">副本的完整性</a></li>
+        <li><a href="#客户端请求">客户端请求</a></li>
+        <li><a href="#集群管理加入或减少节点">集群管理（加入或减少节点）</a></li>
+        <li><a href="#总结">总结</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+  </div>
+</div>
+    <div class="post-content">
+      <p>分布式系统为了实现<strong>多副本状态机（Replicated state machine）</strong>，常常需要一个多副本日志（Replicated log）系统，<a href="https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying">这个原理受到简单的经验常识启发</a>：如果日志的内容和顺序都相同，多个进程从同一状态开始，并且以相同的顺序获得相同的输入，那么这些进程将会生成相同的输出，并且结束在相同的状态。</p>
+<p>Replicated log =&gt; Replicated state machine</p>
+<p><img src="/media/images/20201018-multi-paxos/Replicated-state-machine.jpg" alt="Replicated-state-machine"></p>
+<p>问题是：</p>
+<blockquote>
+<p>如何保证日志数据在每台机器上都一样？</p>
+</blockquote>
+<p>当然是一直在讨论的 Paxos。一次独立的 Paxos 代表日志中的一条记录，重复运行 Paxos 即可创建一个 Replicated log。</p>
+<p>但是如果每一组提案值都通过一次 Paxos 算法实例来达成共识，每次都要两轮 RPC，会产生大量开销。所以需要对 Paxos 做一些调整解决更实际的问题，并提升性能。经过一系列优化后的 Paxos 我们称之为 Multi-Paxos。</p>
+<blockquote>
+<p>Multi-Paxos 的目标就是实现 Replicated log.</p>
+</blockquote>
+<p>下面我们从第一个问题开始。</p>
+<h2 id="如何确定是哪条日志记录">如何确定是哪条日志记录？</h2>
+<p>首先，Replicated log 类似一个数组，我们需要知道当次请求是在写日志的第几位。因此，Multi-Paxos 做的第一个调整就是要添加一个日志的 index 参数到 <code>Prepare</code> 和 <code>Accept</code> 阶段，表示这轮 Paxos 正在决策哪一条日志记录。</p>
+<p>现在流程大致如下，当收到客户端带有提案值的请求时：</p>
+<ol>
+<li>找到第一个没有 chosen 的日志记录</li>
+<li>运行 Basic Paxos，对这个 index 用客户端请求的提案值进行提案</li>
+<li>Prepare 是否返回 <code>acceptedValue</code>？
+<ul>
+<li>是：用 <code>acceptedValue</code> 跑完这轮 Paxos，然后回到步骤 1 继续处理</li>
+<li>否：chosen 客户端提案值</li>
+</ul>
+</li>
+</ol>
+<h3 id="举个例子">举个例子</h3>
+<p><img src="/media/images/20201018-multi-paxos/Selecting-log-entries.png" alt=""></p>
+<p>如图所示，首先，服务器上的每条日志记录可能存在三种状态：</p>
+<ul>
+<li>已经保存并知道被 chosen 的日志记录，例如 S1 方框加粗的第 1、2、6 条记录（后面会介绍服务器如何知道这些记录已经被 chosen）</li>
+<li>已经保存但不知道有没有被 chosen，例如 S1 第 3 条 <code>cmp</code> 命令。观察三台服务器上的日志，cmp 其实已经存在两台上达成了多数派，只是 S1 还不知道</li>
+<li>空的记录，例如 S1 第 4、5 条记录，S1 在这个位置没有接受过值，但可能在其它服务器接受过：例如 S2 第 4 条接受了 <code>sub</code>，S3 第 5 条接受了 <code>cmp</code></li>
+</ul>
+<p>我们知道三台机可以容忍一台故障，为了更具体的分析，我们假设此时<strong>是 S3 宕机的情况</strong>。同时，这里的提案值是一条具体的命令。当 S1 收到客户端的请求命令 <code>jmp</code> 时，：</p>
+<ol>
+<li>找到第一个没有 chosen 的日志记录：图示中是第 3 条 <code>cmp</code> 命令。</li>
+<li>这时候 S1 会尝试让 <code>jmp</code> 作为第 3 条的 chosen 值，运行 Paxos。</li>
+<li>因为 S1 的 Acceptor 已经接受了 <code>cmp</code>，所以在 Prepare 阶段会返回 <code>cmp</code>，接着用 <code>cmp</code> 作为提案值跑完这轮 Paxos，s2 也将接受 <code>cmp</code> 同时 S1 的 <code>cmp</code> 变为 chosen 状态，然后继续找下一个没有 chosen 的位置——也就是第 4 位。</li>
+<li>S2 的第 4 个位置接受了 <code>sub</code>，所以在 Prepare 阶段会返回 <code>sub</code>，S1 的第 4 位会 chosen <code>sub</code>，接着往下找。</li>
+<li>第 5 位 S1 和 S2 都为空，不会返回 <code>acceptedValue</code>，所以第 5 个位置就确定为 <code>jmp</code> 命令的位置，运行 Paxos，并返回请求。</li>
+</ol>
+<p>值得注意的是，这个系统是可以并行处理多个客户端请求，比如 S1 知道 3、4、5、7 这几个位置都是未 chosen 的，就直接把收到的 4 个命令并行尝试写到这四个位置。但是，如果是状态机要执行日志时，必须是按照日志顺序逐一输入，如果第 3 条没有被 chosen，即便第 4 条已经 chosen 了，状态机也不能执行第 4 条命令。</p>
+<p>还记得我们之前文章里说的活锁。如果所有的 Proposer 都一起并行工作，因 Proposer 间大量的冲突而需要更多轮 RPC 才能达成共识的可能性就很大。另外，<strong>每个提案最优情况下还是需要两轮 RPC</strong> ！</p>
+<p>一般通过以下方式优化：</p>
+<ul>
+<li>选择一个Leader，任意时刻只有它一个 Proposer，这样可以避免冲突</li>
+<li>减少大部分 Prepare 请求，只需要对整个日志进行一次 Prepare，后面大部分日志可以通过一次 Accept 被 chosen</li>
+</ul>
+<p>下面谈谈这两个优化。</p>
+<h2 id="leader-选举">Leader 选举</h2>
+<p>有很多办法可以进行选举，Lamport 提出了一种简单的方式：让 server_id 最大的节点成为Leader（在<a href="http://tangwz.com/post/basic-paxos/">上篇</a>说到提案编号由自增 id 和 server_id 组成，就是这个 server_id）。</p>
+<ol>
+<li>既然每台服务器都有一个 server_id，我们就直接让 server_id 最大的服务器成为 Leader，这意味着每台服务器需要知道其它服务器的 server_id</li>
+<li>为此，每个节点每隔 Tms 向其它服务器发送心跳</li>
+<li>如果一个节点在 2Tms 时间内没有收到比自己 server_id 更大的心跳，那它自己就转为 Leader，意味着：
+<ul>
+<li>该节点处理客户端请求</li>
+<li>该节点同时担任 Proposer 和 Acceptor</li>
+</ul>
+</li>
+<li>如果一个节点收到比自己 server_id 更大的服务器的心跳，那么它就不能成为 Leader，意味着：
+<ul>
+<li>该节点拒绝掉客户端请求，或者将请求重定向到 Leader</li>
+<li>该节点只能担任 Acceptor</li>
+</ul>
+</li>
+</ol>
+<p>值得注意的是，这是非常简单的策略，这种方式系统中同时有两个 Leader 的概率是较小的。<strong>即使是系统中有两个 Leader，Paxos 也是能正常工作的，只是冲突的概率就大了很多，效率也会降低。</strong></p>
+<p>有一些基于租约的策略显得更为稳定，也更复杂，在此不表。</p>
+<h2 id="减少-prepare-请求">减少 Prepare 请求</h2>
+<p>在讨论如何减少 Prepare 请求之前，先讨论下 Prepare 阶段的作用，需要 Prepare 有两个原因：</p>
+<ol>
+<li>屏蔽老的提案：但 Basic-Paxos 只作用在日志的一条记录</li>
+<li>检查可能已经被 chosen 的 value 来代替原本的提案值：多个 Proposer 并发进行提案的时候，新的 Proposal 要确保提案的值相同</li>
+</ol>
+<p>我们<strong>依然是需要 Prepare 的</strong>。我们要做的是减少大部分 Prepare 请求，首先要搞定这两个功能。</p>
+<p>对于 1，我们不再让提案编号只屏蔽一个 index 位置，而是让它变成全局的，即屏蔽整个日志。一旦 Prepare 成功，整个日志都会阻塞（值得注意的是，Accept 阶段还是只能写在对应的 index 位置上）。</p>
+<p>对于2，需要拓展 Prepare 请求的返回信息，和之前一样，Prepare 还是会返回最大提案编号的 <code>acceptedValue</code>，除此之外，Acceptor 还会向后查看日志记录，如果要写的这个位置之后都是空的记录，没有接受过任何值，那么 Acceptor 就额外返回一个标志位 <code>noMoreAccepted</code>。</p>
+<p>后续，如果 Leader 接收到超过半数的 Acceptor 回复了 <code>noMoreAccepted</code>，那 Leader 就不需要发送 Prepare 请求了，直接发送 Accept 请求即可。这样只需要一轮 RPC。</p>
+<h2 id="副本的完整性">副本的完整性</h2>
+<p>目前为止，通过选主和减少 Prepare 请求之后的 Multi-Paxos 依然不够完整，还需要解决：</p>
+<ul>
+<li>之前的日志只需要被多数派接受，完整的日志记录需要复制到全部节点</li>
+<li>只有 Proposer（也就是Leader） 知道哪些记录被 chosen 了，需要所有的服务器都知道哪些记录被 chosen</li>
+</ul>
+<p>换句话说，我们需要每台机的日志都完整，这样状态机执行日志后才能达到一样的状态。</p>
+<p>要做到这点，我们需要：</p>
+<ol>
+<li>为了让日志尽可能被复制到每台服务器：Leader 在收到多数派 Acceptor 回复后，可以继续做后面的处理，但同时在后台继续对未回复的 Acceptor 进行重试。这样不会影响客户端的响应时间，但这也不能确保完全复制了（例如，如果 Leader 在中途宕机了）</li>
+<li>为了追踪哪些记录是被 chosen 的，我们增加一些内容：
+<ul>
+<li><code>acceptedProposal</code> 代表日志的提案编号，如果第 i 条记录被 chosen，则 <code>acceptedProposal[i] = 无穷大</code>（这是因为，只有提案编号更大的提案才能被接受，无穷大则表示无法再被重写了）</li>
+<li>每个节点都维护一个 <code>firstUnChosenIndex</code>，表示第一个没有被 chosen 的日志位置。（即第一个 <code>acceptedProposal[i] != 无穷大</code>的节点）</li>
+</ul>
+</li>
+<li>Leader 告诉 Acceptor 哪些日志被 chosen ：Leader 在向 Acceptor 发送 Accept 请求的时候带上 <code>firstUnChosenIndex</code>，这样 Acceptor 收到 Accept 请求的时候，如果第 i 条日志满足 <code>i &lt; request.firstUnchosenIndex &amp;&amp; acceptedProposal[i] == request.proposal</code>，则标记 i 为 chosen（即设为无穷大）</li>
+</ol>
+<p><img src="/media/images/20201018-multi-paxos/full-disclosure.jpg" alt=""></p>
+<p>用图示来说明一下，上图表示同一个 Acceptor 节点 Accept 请求前后的 ``。该 Acceptor 在 Accept 请求之前的第 6 位的提案编号为 3.4，这时它收到一个提案编号也为 3.4 的 Accept 请求，并且请求的 firstUnchosenIndex = 7，大于之前 3.4 所在的 6，所以<strong>将选中第 6 位，同时因为该请求的 index = 8，acceptedProposal[8] == 3.4</strong></p>
+<ol start="4">
+<li>到了这里还需要考虑，Acceptor 的日志条目中仍然可能有一些前任 Leader 留下的提案记录，还没有完成提案的复制或者 chosen 时 Leader 宕机，换了一个 Leader 节点，这时候需要：
+<ul>
+<li>Acceptor 将其 <code>firstUnchosenIndex</code> 作为 Accept 请求的响应返回给 Proposer</li>
+<li>Proposer 判断如果 <code>Acceptor.firstUnChosenIndex &lt; Proposer.firstUnChosenIndex</code>，则在后台（异步）发送 <code>Success(index, v)</code> RPC</li>
+<li>Acceptor 收到 Success RPC 后，更新已经被 chosen 的日志记录：
+<ul>
+<li>acceptedValue[index] = v</li>
+<li>acceptedProposal[index] = 无穷大</li>
+<li>return firstUnchosenIndex</li>
+<li>如果需要(可能存在多个不确定的状态)，Proposer 发送额外的 Success RPC</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<p>总结一下，通过 4 个步骤就可以确保所有的 Acceptor 都最终知道亦 chosen 的日志记录。在一般的情况，并不需要额外的第 4 步，只有在 Leader 切换时才可能需要第 4 步。</p>
+<p>现在我们的日志已被完全复制了。因此，让我们转头看看与客户端的交互。</p>
+<h2 id="客户端请求">客户端请求</h2>
+<p>接下来需要考虑客户端如何与系统交互。</p>
+<p>首先，当客户端第一次请求时，并不知道谁是 Leader，它任意请求一台服务器，如果该服务器不是 Leader，重定向给 Leader。</p>
+<p>Leader 直到日志记录被 chosen 并且被 Leader 的状态机执行才返回响应给客户端。</p>
+<p>客户端会一直和 Leader 交互，直到无法再联系上它（例如请求超时）。在这种情况下，客户端会联系任何其它服务器，这些服务器又在重定向到实际的 Leader。</p>
+<p>但这存在一个问题，如果请求提案被 chosen 后，Leader 在回复客户端之前宕机了。客户端会认为请求失败了，并重试请求。这相当于一个命令会被状态机执行两次，这是不可接受的。</p>
+<p>解决办法是客户端为每个请求增加一个唯一 id，服务器将该 id 与命令一起保存到日志记录中。状态机在执行命令之前，会根据 id 检查该命令是否被执行过。</p>
+<h2 id="集群管理加入或减少节点">集群管理（加入或减少节点）</h2>
+<p>最后一个非常棘手的问题，因为集群中的节点是会变更的，包括：服务器的 id、网络地址变更和节点数量等。集群节点数量改变会影响多数派数量的判断，我们必须保证不会出现两个重叠的多数派。</p>
+<p><img src="/media/images/20201018-multi-paxos/configuration-changes.jpg" alt=""></p>
+<p>Lamport 在 Paxos 论文中的建议解决方案是：使用日志来管理这些变更。当前的集群配置被当作一条日志记录存储起来，并与其它的日志记录一起被复制同步。</p>
+<p><img src="/media/images/20201018-multi-paxos/configuration-changes-demo.jpg" alt=""></p>
+<p>这里看起来会比较奇怪，如图所示，第 1、3 个位置存储了两个不同的系统配置，其它位置的日志存储了状态机要执行的命令。增加一个系统参数 𝛼 去控制当配置变更时什么时候去应用它，<strong>𝛼 表示配置多少条记录后才能生效。</strong></p>
+<p>这里假设 𝛼 = 3，意味着 C1 在 3 条记录内不生效，也就是 C1 在第 4 条才会生效， C2 在第 6 条开始生效。</p>
+<p>𝛼 是在系统启动的时候就指定的参数。这个参数的大小会限制我们在系统可以同时 chosen 的日志条数：在 <code>i</code> 这个位置的值被 chosen 之前，我们不能 chosen <code>i+α</code> 这个位置的值——因为我们不知道中间是否有配置变更。</p>
+<p>所以，如果 α 值很小，假设是 1，那整个系统就是串行工作了；如果 α = 3，意味着我们可以同时 chosen 3 个位置的值；如果 α 非常大， α = 1000，那事情就会变得复杂，如果我们要变更配置，可能要等配置所在的 1000 条记录都被 chosen 以后才会生效，那要等好一阵子。这时候为了让配置更快生效，我们可以写入一些 <code>no-op</code> 指令来填充日志，使得迅速达到需要的条数，而不用一直等待客户端请求进来。</p>
+<h2 id="总结">总结</h2>
+<p>首先，描述了如何从 Basic-Paxos 到 Multi-Paxos，如何 chosen 某个位置的日志记录，接着是两个提高 Paxos 效率的办法：选定 Leader 和减少 Prepare 请求。还讲到了如何让所有的服务器都得到完整的日志，系统如何与客户端交互工作。最后，讲了通过 α 值来处理配置变更。</p>
+<p>Basic Paxos 流程是比较容易理解的，但 Multi-Paxos 却非常棘手，尤其是实际使用的时候，需要一系列的优化，这一系列优化又是不那么容易理解和做到的。这也是后来的分布式系系统纷纷转投 Raft 的原因之一吧，Paxos 的工程化实在令人头疼。</p>
+<p>但不得不说的是，大厂都有自己的 Paxos/Multi-Paxos 实现。Google 的论文 &ldquo;<a href="https://www.cs.utexas.edu/users/lorenzo/corsi/cs380d/papers/paper2-1.pdf">Paxos made live</a>&rdquo; 介绍他们相关的工作，他们的 BigTable、chubby 都是基于文章描述的 Multi-Paxos；微信作为体量巨大的应用，也有开源的 paxos 实现：<a href="https://github.com/Tencent/phxpaxos">phxpaxos</a>；<a href="https://www.zhihu.com/question/52337912">阿里的 Oceanbase 也是使用 Paxos</a>——Paxos 可谓分布式系统的皇冠。</p>
+<p>下篇文章我们还会继续介绍 Paxos 的其它变体：<a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2005-112.pdf">Fast-Paxos</a>。</p>
+
+    </div>
+
+    <div class="post-copyright">
+  <p class="copyright-item">
+    <span class="item-title">文章作者</span>
+    <span class="item-content">Tangwz</span>
+  </p>
+  <p class="copyright-item">
+    <span class="item-title">上次更新</span>
+    <span class="item-content">
+        2020-10-18
+        
+    </span>
+  </p>
+  
+  <p class="copyright-item">
+    <span class="item-title">许可协议</span>
+    <span class="item-content">本作品采用<a rel="license noopener" href="https://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank">知识共享署名 4.0 国际许可协议</a>。转载时请注明原文链接。</span>
+  </p>
+</div>
+<div class="post-reward">
+  <input type="checkbox" name="reward" id="reward" hidden />
+  <label class="reward-button" for="reward">赞赏支持</label>
+  <div class="qr-code">
+    
+    <label class="qr-code-image" for="reward">
+        <img class="image" src="/path/to/your/wechat-qr-code.png">
+        <span>微信打赏</span>
+      </label>
+    <label class="qr-code-image" for="reward">
+        <img class="image" src="/path/to/your/alipay-qr-code.png">
+        <span>支付宝打赏</span>
+      </label>
+  </div>
+</div><div class="post-wechat">
+    <h1>微信公众号</h1>
+    <img src="https://i.loli.net/2020/08/30/1TBdqh9rtgWDUoz.png">
+  </div><footer class="post-footer">
+      <div class="post-tags">
+          <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a>
+          </div>
+      <nav class="post-nav">
+        
+        <a class="next" href="/post/basic-paxos/">
+            <span class="next-text nav-default">理解 Paxos（含伪代码）</span>
+            <span class="next-text nav-mobile">下一篇</span>
+            <i class="iconfont icon-right"></i>
+          </a>
+      </nav>
+    </footer>
+  </article>
+        </div>
+        
+
+  
+
+  
+
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="social-links">
+      <a href="https://stackoverflow.com/users/4805962/tangwz" class="iconfont icon-stack-overflow" title="stack-overflow"></a>
+      <a href="https://github.com/tangwz" class="iconfont icon-github" title="github"></a>
+      <a href="https://www.zhihu.com/people/duoketang" class="iconfont icon-zhihu" title="zhihu"></a>
+      <a href="https://www.douban.com/people/duoketang/" class="iconfont icon-douban" title="douban"></a>
+  <a href="https://tangwz.com/index.xml" type="application/rss+xml" class="iconfont icon-rss" title="rss"></a>
+</div>
+
+<div class="copyright">
+  <span class="power-by">
+    由 <a class="hexo-link" href="https://gohugo.io">Hugo</a> 强力驱动
+  </span>
+  <span class="division">|</span>
+  <span class="theme-info">
+    主题 - 
+    <a class="theme-link" href="https://github.com/olOwOlo/hugo-theme-even">Even</a>
+  </span>
+
+  
+
+  <span class="copyright-year">
+    &copy; 
+    2019 - 
+    2020
+    <span class="heart">
+      <i class="iconfont icon-heart"></i>
+    </span>
+    <span class="author">Tangwz</span>
+  </span>
+</div>
+    </footer>
+
+    <div class="back-to-top" id="back-to-top">
+      <i class="iconfont icon-up"></i>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.2.1/dist/jquery.min.js" integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/slideout@1.0.1/dist/slideout.min.js" integrity="sha256-t+zJ/g8/KXIJMjSVQdnibt4dlaDxc9zXr/9oNPeWqdg=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fancyapps/fancybox@3.1.20/dist/jquery.fancybox.min.js" integrity="sha256-XVLffZaxoWfGUEbdzuLi7pwaUJv1cecsQJQqGLe7axY=" crossorigin="anonymous"></script>
+
+
+
+<script type="text/javascript" src="/js/main.min.d7b7ada643c9c1a983026e177f141f7363b4640d619caf01d8831a6718cd44ea.js"></script>
+  <script type="text/javascript">
+    window.MathJax = {
+      showProcessingMessages: false,
+      messageStyle: 'none'
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"  integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+	ga('create', 'UA-72128068-1', 'auto');
+	ga('set', 'anonymizeIp', true);
+	ga('send', 'pageview');
+}
+</script>
+<script async src='https://www.google-analytics.com/analytics.js'></script>
+
+
+
+
+
+
+
+</body>
+</html>

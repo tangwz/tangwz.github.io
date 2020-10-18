@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Tue, 29 Sep 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sun, 18 Oct 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Paxos 的变种（一）：Multi-Paxos</title>
+      <link>https://tangwz.com/post/multi-paxos/</link>
+      <pubDate>Sun, 18 Oct 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/multi-paxos/</guid>
+      <description>分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受</description>
+    </item>
+    
     <item>
       <title>理解 Paxos（含伪代码）</title>
       <link>https://tangwz.com/post/basic-paxos/</link>
