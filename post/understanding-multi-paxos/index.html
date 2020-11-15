@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>用 Raft 的方式理解 Multi-Paxos - Tangwz - 我想要说的，前人们都说过了</title>
+  <meta name="renderer" content="webkit" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+<meta name="theme-color" content="#f8f5ec" />
+<meta name="msapplication-navbutton-color" content="#f8f5ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
+
+
+<meta name="author" content="Tangwz" /><meta name="description" content="Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。 这里描述的 Multi-Paxos 尚未经" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
+
+
+
+
+
+
+<meta name="generator" content="Hugo 0.75.1 with theme even" />
+
+
+<link rel="canonical" href="https://tangwz.com/post/understanding-multi-paxos/" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="manifest" href="/manifest.json">
+<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+
+
+
+<link href="/sass/main.min.651e6917abb0239242daa570c2bec9867267bbcd83646da5a850afe573347b44.css" rel="stylesheet">
+<link href="/lib/fancybox/jquery.fancybox-3.1.20.min.css" rel="stylesheet">
+
+
+<meta property="og:title" content="用 Raft 的方式理解 Multi-Paxos" />
+<meta property="og:description" content="Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。 这里描述的 Multi-Paxos 尚未经" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://tangwz.com/post/understanding-multi-paxos/" />
+<meta property="article:published_time" content="2020-11-15T00:00:00+00:00" />
+<meta property="article:modified_time" content="2020-11-15T00:00:00+00:00" />
+<meta itemprop="name" content="用 Raft 的方式理解 Multi-Paxos">
+<meta itemprop="description" content="Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。 这里描述的 Multi-Paxos 尚未经">
+<meta itemprop="datePublished" content="2020-11-15T00:00:00+00:00" />
+<meta itemprop="dateModified" content="2020-11-15T00:00:00+00:00" />
+<meta itemprop="wordCount" content="1813">
+
+
+
+<meta itemprop="keywords" content="分布式," />
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="用 Raft 的方式理解 Multi-Paxos"/>
+<meta name="twitter:description" content="Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。 这里描述的 Multi-Paxos 尚未经"/>
+
+<!--[if lte IE 9]>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
+<![endif]-->
+
+<!--[if lt IE 9]>
+  <script src="https://cdn.jsdelivr.net/npm/html5shiv@3.7.3/dist/html5shiv.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/respond.js@1.4.2/dest/respond.min.js"></script>
+<![endif]-->
+
+</head>
+<body>
+  <div id="mobile-navbar" class="mobile-navbar">
+  <div class="mobile-header-logo">
+    <a href="/" class="logo">Tangwz 的博客</a>
+  </div>
+  <div class="mobile-navbar-icon">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+</div>
+<nav id="mobile-menu" class="mobile-menu slideout-menu">
+  <ul class="mobile-menu-list">
+    <a href="/">
+        <li class="mobile-menu-item">主页</li>
+      </a><a href="/post/">
+        <li class="mobile-menu-item">归档</li>
+      </a><a href="/tags/">
+        <li class="mobile-menu-item">标签</li>
+      </a><a href="/categories/">
+        <li class="mobile-menu-item">分类</li>
+      </a><a href="/about">
+        <li class="mobile-menu-item">关于</li>
+      </a><a href="/index.xml">
+        <li class="mobile-menu-item">RSS</li>
+      </a>
+  </ul>
+</nav>
+  <div class="container" id="mobile-panel">
+    <header id="header" class="header">
+        <div class="logo-wrapper">
+  <a href="/" class="logo">Tangwz 的博客</a>
+</div>
+
+<nav class="site-navbar">
+  <ul id="menu" class="menu">
+    <li class="menu-item">
+        <a class="menu-item-link" href="/">主页</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/post/">归档</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/tags/">标签</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/categories/">分类</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/about">关于</a>
+      </li><li class="menu-item">
+        <a class="menu-item-link" href="/index.xml">RSS</a>
+      </li>
+  </ul>
+</nav>
+    </header>
+
+    <main id="main" class="main">
+      <div class="content-wrapper">
+        <div id="content" class="content">
+          <article class="post">
+    
+    <header class="post-header">
+      <h1 class="post-title">用 Raft 的方式理解 Multi-Paxos</h1>
+
+      <div class="post-meta">
+        <span class="post-time"> 2020-11-15 </span>
+        <div class="post-category">
+            <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
+            </div>
+          <span class="more-meta"> 约 1813 字 </span>
+          <span class="more-meta"> 预计阅读 4 分钟 </span>
+        
+      </div>
+    </header>
+
+    <div class="post-toc" id="post-toc">
+  <h2 class="post-toc-title">文章目录</h2>
+  <div class="post-toc-content always-active">
+    <nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-基础">1. 基础</a>
+      <ul>
+        <li><a href="#11-leader-选举算法">1.1 Leader 选举算法</a></li>
+      </ul>
+    </li>
+    <li><a href="#2-持久化">2. 持久化</a>
+      <ul>
+        <li><a href="#21-acceptor-上的持久化状态">2.1 Acceptor 上的持久化状态</a></li>
+        <li><a href="#22-proposer-上的持久化状态">2.2 Proposer 上的持久化状态</a></li>
+        <li><a href="#23-proposer-上的易失性状态">2.3 Proposer 上的易失性状态</a></li>
+      </ul>
+    </li>
+    <li><a href="#3-流程">3 流程</a>
+      <ul>
+        <li><a href="#31-prepare阶段-1">3.1 Prepare（阶段 1）</a></li>
+        <li><a href="#请求">请求：</a>
+          <ul>
+            <li><a href="#接受者处理">接受者处理：</a></li>
+            <li><a href="#响应">响应：</a></li>
+          </ul>
+        </li>
+        <li><a href="#32-accept阶段-2">3.2 Accept（阶段 2）</a>
+          <ul>
+            <li><a href="#请求-1">请求：</a></li>
+            <li><a href="#接受者处理-1">接受者处理：</a></li>
+            <li><a href="#响应-1">响应：</a></li>
+          </ul>
+        </li>
+        <li><a href="#33-success阶段-3">3.3 Success（阶段 3）</a>
+          <ul>
+            <li><a href="#请求-2">请求：</a></li>
+            <li><a href="#接受者处理-2">接受者处理：</a></li>
+            <li><a href="#响应-2">响应：</a></li>
+          </ul>
+        </li>
+        <li><a href="#34-proposer-算法writeinputvalue--bool">3.4 Proposer 算法：<code>write(inputValue) → bool</code></a></li>
+      </ul>
+    </li>
+    <li><a href="#4-配置变更成员变更">4. 配置变更（成员变更）</a></li>
+  </ul>
+</nav>
+  </div>
+</div>
+    <div class="post-content">
+      <p>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “<a href="https://lamport.azurewebsites.net/pubs/lamport-paxos.pdf">The Part-Time Parliament.</a>” 中给出的算法。</p>
+<p><strong>这里描述的 Multi-Paxos 尚未经过实践证明其正确性</strong>。</p>
+<p><strong>众所周知 Raft 是更易理解的，所以我参照 Raft 的风格，将 Paxos 转换成了下图。</strong></p>
+<p><img src="/media/images/20201115-understanding-multi-paxos/raft-style-multi-paxos.png" alt=""></p>
+<h1 id="1-基础">1. 基础</h1>
+<ul>
+<li>提案编号 <em>n</em> = (round number, server ID)</li>
+<li><em>T</em>： 固定的超时时间，用于选举算法</li>
+<li><em>α</em>：并发限制，用于配置变更</li>
+</ul>
+<h2 id="11-leader-选举算法">1.1 Leader 选举算法</h2>
+<ul>
+<li>每个节点每隔 T（ms） 向其它服务器发送心跳</li>
+<li>如果一个节点在 2（Tms） 时间内没有收到比自己 server ID 更大的心跳，那它自己就转为 Leader</li>
+</ul>
+<h1 id="2-持久化">2. 持久化</h1>
+<h2 id="21-acceptor-上的持久化状态">2.1 Acceptor 上的持久化状态</h2>
+<ul>
+<li><em>lastLogIndex</em>：已经接受的最大的日志index</li>
+<li><em>minProposal</em>：已经接收提案中的最小提案编号，如果还未收到 Prepare 请求，则为 0</li>
+</ul>
+<p>每个 Acceptor 上还会存储一个日志，日志索引 i ∈ [1, lastLogIndex]，每条日志记录包含以下内容：</p>
+<ul>
+<li><em>acceptedProposal[i]</em>：第 i 条日志最后接受的提案编号。初始化时为 0；如果提案被 chosen，则 acceptedProposal[i] = 无穷大</li>
+<li><em>acceptedValue[i]</em>：第 i 条日志最后接受的 value，初始化时为 <code>null</code></li>
+<li><em>firstUnchosenIndex</em>：i &gt; 0 且 acceptedProposal[i] &lt; ∞ 的最小日志 index</li>
+</ul>
+<h2 id="22-proposer-上的持久化状态">2.2 Proposer 上的持久化状态</h2>
+<ul>
+<li><em>maxRound</em>：Proposer 已知的最大 round number</li>
+</ul>
+<h2 id="23-proposer-上的易失性状态">2.3 Proposer 上的易失性状态</h2>
+<ul>
+<li><em>nextIndex</em>：客户端请求要写的下一个日志 index</li>
+<li><em>prepared</em>：如果 prepared 为 True，那么 Proposer 不再需要发起 Prepare 请求（超过半数的 Acceptor 回复了 <code>noMoreAccepted</code>）；初始化为 False</li>
+</ul>
+<h1 id="3-流程">3 流程</h1>
+<h2 id="31-prepare阶段-1">3.1 Prepare（阶段 1）</h2>
+<h2 id="请求">请求：</h2>
+<ul>
+<li><em>n</em>：提案编号</li>
+<li><em>index</em>：Proposer 的提案对应的日志 index</li>
+</ul>
+<h3 id="接受者处理">接受者处理：</h3>
+<p>收到 Prepare 请求后，如果 <code>request.n &gt;= minProposal</code>，则 Acceptor 设置 <code>minProposal = request. proposalId</code>；同时承诺拒绝所有提案编号 &lt; request.n 的 Accept 请求。</p>
+<h3 id="响应">响应：</h3>
+<ul>
+<li><em>acceptedProposal：Acceptor</em> 的 <code>acceptedProposal[index]</code></li>
+<li><em>acceptedValue</em>：Acceptor 的 <code>acceptedValue[index]</code></li>
+<li><em>noMoreAccepted</em>：Acceptor 遍历 &gt;= index 的日志记录，如果之后没有接受过任何值（都是空的记录），那么 noMoreAccepted = True；否则设为 False</li>
+</ul>
+<h2 id="32-accept阶段-2">3.2 Accept（阶段 2）</h2>
+<h3 id="请求-1">请求：</h3>
+<ul>
+<li><em>n</em>：和 Prepare 阶段一样的提案编号</li>
+<li><em>index</em>：日志 index</li>
+<li><em>v</em>：提案的值，如果 Prepare 阶段收到一个更大的提案编号，那么就是该最大的提案的值，否则 Proposer 使用来自 Client 的值</li>
+<li><em>firstUnchosenIndex</em>：节点日志上第一个没有被 chosen 的日志 index</li>
+</ul>
+<h3 id="接受者处理-1">接受者处理：</h3>
+<p>收到 Accept 请求后，如果 <code>n &gt;= minProposal,</code> 则：</p>
+<ul>
+<li><code>acceptedProposal[index] = n</code></li>
+<li><code>acceptedValue[index] = v</code></li>
+<li>minProposal = n
+对于每个 <code> index &lt; request.firstUnchosenIndex</code>，如果 <code>acceptedProposal[index] = n</code>，则 <code>acceptedProposal[index] = ∞</code></li>
+</ul>
+<p><img src="/media/images/20201115-understanding-multi-paxos/accept.png" alt=""></p>
+<h3 id="响应-1">响应：</h3>
+<ul>
+<li><em>n</em>：Acceptor 的 minProposal 值</li>
+<li><em>firstUnchosenIndex</em>：Acceptor 的 firstUnchosenIndex 值</li>
+</ul>
+<h2 id="33-success阶段-3">3.3 Success（阶段 3）</h2>
+<h3 id="请求-2">请求：</h3>
+<ul>
+<li><em>index</em>：日志的索引</li>
+<li><em>v</em>：log[index] 已 chosen 的提案值</li>
+</ul>
+<h3 id="接受者处理-2">接受者处理：</h3>
+<p>Acceptor 收到 Success RPC 后，更新已经被 chosen 的日志记录：</p>
+<ul>
+<li>acceptedValue[index] = v</li>
+<li>acceptedProposal[index] = 无穷大</li>
+</ul>
+<h3 id="响应-2">响应：</h3>
+<ul>
+<li><em>firstUnchosenIndex</em>：Acceptor 的 firstUnchosenIndex 值</li>
+</ul>
+<p>当发送者收到响应后，如果 <code>reply.firstUnchosenIndex &lt; firstUnchosenIndex</code>，则发送者再发生请求：<code> Success(index = reply.firstUnchosenIndex, value = acceptedValue[reply.firstUnchosenIndex])</code></p>
+<h2 id="34-proposer-算法writeinputvalue--bool">3.4 Proposer 算法：<code>write(inputValue) → bool</code></h2>
+<ol>
+<li>如果不是 Leader，或者 Leader 还没有初始化完成，直接返回 False</li>
+<li>如果 prepared == True：
+<ul>
+<li>index = nextIndex, nextIndex++</li>
+<li>goto 7</li>
+</ul>
+</li>
+<li>index = firstUnchosenIndex，nextIndex = index + 1</li>
+<li>生成一个新的提案编号 n（maxRound++，并持久化保存）</li>
+<li>广播 <code>Prepare(n, index)</code> 给所有 Acceptor</li>
+<li>一旦收到超过半数 Acceptor 的 Prepare 响应（<code>reply.acceptedProposal,reply.acceptedValue,reply.noMoreAccepted</code>）：
+<ul>
+<li>如果所有响应中最大的 <code>reply.acceptedProposal</code> 不等于 0，那么使用它的 <code>reply.acceptedValue</code>，否则使用自己的 <code>inputValue</code></li>
+<li>如果超过半数的 Acceptor 回复了 <code>reply.noMoreAccepted = True</code>，那么 <code>prepared = true</code></li>
+</ul>
+</li>
+<li>广播 <code>Accept(index, n, v)</code> 到所有的 Acceptor</li>
+<li>一旦收到一个 Acceptor 的响应（<code>reply.n, reply.firstUnchosenIndex</code>）
+<ul>
+<li>如果 <code>reply.n &gt; n</code>，则从 <code>reply.n</code> 中修改 <code>maxRound</code>，修改 <code>prepared = False</code>，<strong>跳转到 1</strong></li>
+<li>如果 <code>reply.firstUnchosenIndex ≤ lastLogIndex</code> 并且 <code>acceptedProposal[reply.firstUnchosenIndex] == ∞</code>，就发送 <code>Success(index = reply.firstUnchosenIndex, value = acceptedV alue[reply.firstUnchosenIndex])</code></li>
+</ul>
+</li>
+<li>一旦收到超过半数 Acceptor 的 Accept 响应：修改 <code>acceptedP roposal[index] = ∞</code> 和 <code>acceptedValue[index] = v</code></li>
+<li>如果 <code>v == inputValue</code>， 返回 True</li>
+<li><strong>跳转到 2</strong></li>
+</ol>
+<h1 id="4-配置变更成员变更">4. 配置变更（成员变更）</h1>
+<p><img src="/media/images/20201018-multi-paxos/configuration-changes-demo.jpg" alt=""></p>
+<ul>
+<li>配置通常一个列表，每一项存着一台服务器的 id 和 ip 地址，作为一条特殊的记录存储在日志中</li>
+<li><code>𝛼</code> 表示配置多少条记录后才能生效。第 <code>i</code> 条记录 chosen 时的配置存储在第 <code>i-𝛼</code> 条或 <code>i-𝛼</code> 条之前</li>
+<li><code>α</code> 用作并发限制：在 <code>i</code> 这个位置的值被 chosen 之前，我们不能 chosen <code>i+α</code> 这个位置的值</li>
+</ul>
+
+    </div>
+
+    <div class="post-copyright">
+  <p class="copyright-item">
+    <span class="item-title">文章作者</span>
+    <span class="item-content">Tangwz</span>
+  </p>
+  <p class="copyright-item">
+    <span class="item-title">上次更新</span>
+    <span class="item-content">
+        2020-11-15
+        
+    </span>
+  </p>
+  
+  <p class="copyright-item">
+    <span class="item-title">许可协议</span>
+    <span class="item-content">本作品采用<a rel="license noopener" href="https://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank">知识共享署名 4.0 国际许可协议</a>。转载时请注明原文链接。</span>
+  </p>
+</div>
+<div class="post-reward">
+  <input type="checkbox" name="reward" id="reward" hidden />
+  <label class="reward-button" for="reward">赞赏支持</label>
+  <div class="qr-code">
+    
+    <label class="qr-code-image" for="reward">
+        <img class="image" src="/media/images/reward/wechat.JPG">
+        <span>微信打赏</span>
+      </label>
+    <label class="qr-code-image" for="reward">
+        <img class="image" src="/path/to/your/alipay-qr-code.png">
+        <span>支付宝打赏</span>
+      </label>
+  </div>
+</div><div class="post-wechat">
+    <h1>微信公众号</h1>
+    <img src="https://i.loli.net/2020/08/30/1TBdqh9rtgWDUoz.png">
+  </div><footer class="post-footer">
+      <div class="post-tags">
+          <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a>
+          </div>
+      <nav class="post-nav">
+        
+        <a class="next" href="/post/raft-exam/">
+            <span class="next-text nav-default">Raft 作者亲自出的 Raft 试题，你能做对几道？</span>
+            <span class="next-text nav-mobile">下一篇</span>
+            <i class="iconfont icon-right"></i>
+          </a>
+      </nav>
+    </footer>
+  </article>
+        </div>
+        
+
+  
+
+  
+
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="social-links">
+      <a href="https://stackoverflow.com/users/4805962/tangwz" class="iconfont icon-stack-overflow" title="stack-overflow"></a>
+      <a href="https://github.com/tangwz" class="iconfont icon-github" title="github"></a>
+      <a href="https://www.zhihu.com/people/duoketang" class="iconfont icon-zhihu" title="zhihu"></a>
+      <a href="https://www.douban.com/people/duoketang/" class="iconfont icon-douban" title="douban"></a>
+  <a href="https://tangwz.com/index.xml" type="application/rss+xml" class="iconfont icon-rss" title="rss"></a>
+</div>
+
+<div class="copyright">
+  <span class="power-by">
+    由 <a class="hexo-link" href="https://gohugo.io">Hugo</a> 强力驱动
+  </span>
+  <span class="division">|</span>
+  <span class="theme-info">
+    主题 - 
+    <a class="theme-link" href="https://github.com/olOwOlo/hugo-theme-even">Even</a>
+  </span>
+
+  
+
+  <span class="copyright-year">
+    &copy; 
+    2019 - 
+    2020
+    <span class="heart">
+      <i class="iconfont icon-heart"></i>
+    </span>
+    <span class="author">Tangwz</span>
+  </span>
+</div>
+    </footer>
+
+    <div class="back-to-top" id="back-to-top">
+      <i class="iconfont icon-up"></i>
+    </div>
+  </div>
+  <script type="text/javascript" src="/lib/jquery/jquery-3.2.1.min.js"></script>
+  <script type="text/javascript" src="/lib/slideout/slideout-1.0.1.min.js"></script>
+  <script type="text/javascript" src="/lib/fancybox/jquery.fancybox-3.1.20.min.js"></script>
+
+
+
+<script type="text/javascript" src="/js/main.min.d7b7ada643c9c1a983026e177f141f7363b4640d619caf01d8831a6718cd44ea.js"></script>
+  <script type="text/javascript">
+    window.MathJax = {
+      showProcessingMessages: false,
+      messageStyle: 'none'
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"  integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script>
+
+
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+	ga('create', 'UA-72128068-1', 'auto');
+	ga('set', 'anonymizeIp', true);
+	ga('send', 'pageview');
+}
+</script>
+<script async src='https://www.google-analytics.com/analytics.js'></script>
+
+
+
+
+
+
+
+</body>
+</html>
