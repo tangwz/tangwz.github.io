@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Sun, 15 Nov 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 26 Nov 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>系统设计那些事儿：硬盘 I/O</title>
+      <link>https://tangwz.com/post/disk/</link>
+      <pubDate>Thu, 26 Nov 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/disk/</guid>
+      <description>数据库系统总会涉及非易失性存储，我们需要知道一个典型的计算机系统是如何进行存储管理的。时至今日，虽然 SSD 已经成为很多数据库管理员的选择，但传统</description>
+    </item>
+    
     <item>
       <title>用 Raft 的方式理解 Multi-Paxos</title>
       <link>https://tangwz.com/post/understanding-multi-paxos/</link>
