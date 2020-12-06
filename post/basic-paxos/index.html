@@ -23,7 +23,7 @@
 
 
 
-<meta name="generator" content="Hugo 0.75.1 with theme even" />
+<meta name="generator" content="Hugo 0.79.0 with theme even" />
 
 
 <link rel="canonical" href="https://tangwz.com/post/basic-paxos/" />
@@ -49,7 +49,7 @@
 <meta itemprop="description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法">
 <meta itemprop="datePublished" content="2020-09-29T00:00:00+00:00" />
 <meta itemprop="dateModified" content="2020-09-29T00:00:00+00:00" />
-<meta itemprop="wordCount" content="3164">
+<meta itemprop="wordCount" content="3236">
 
 
 
@@ -134,7 +134,7 @@
         <div class="post-category">
             <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
             </div>
-          <span class="more-meta"> 约 3164 字 </span>
+          <span class="more-meta"> 约 3236 字 </span>
           <span class="more-meta"> 预计阅读 7 分钟 </span>
         
       </div>
@@ -239,7 +239,10 @@
 <p>如上所述，Paxos 是一个两阶段算法。我们把第一个阶段叫做准备（Prepare）阶段，第二个阶段叫做接受（Accept）阶段。分别对应两轮 RPC。</p>
 <h2 id="第一轮-prepare-rpcs">第一轮 Prepare RPCs：</h2>
 <h3 id="请求也叫-prepare-阶段">请求（也叫 Prepare 阶段）：</h3>
-<p>Proposer 选择一个提案编号 n，向所有的 Acceptor 广播 <code>Prepare(n)</code> 请求。</p>
+<p>Proposer 选择一个提案编号 n，向<strong>超过半数</strong>的 Acceptor 广播 <code>Prepare(n)</code> 请求。</p>
+<blockquote>
+<p>注：这里讲义的算法流程图是向所有的 Acceptor 发起 <code>Prepare()</code> 请求，鄙人认为应该改为向多数派 Acceptor 发起。参考论文原文： Phase 1. (a) A proposer selects a proposal number n and sends a prepare request with number n to a majority of acceptors.</p>
+</blockquote>
 <p><strong>这里 Prepare（n）不包含提案的值。</strong></p>
 <p>伪代码：</p>
 <div class="highlight"><div class="chroma">

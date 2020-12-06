@@ -23,7 +23,7 @@
 
 
 
-<meta name="generator" content="Hugo 0.75.1 with theme even" />
+<meta name="generator" content="Hugo 0.79.0 with theme even" />
 
 
 <link rel="canonical" href="https://tangwz.com/post/disk/" />
@@ -49,7 +49,7 @@
 <meta itemprop="description" content="数据库系统总会涉及非易失性存储，我们需要知道一个典型的计算机系统是如何进行存储管理的。时至今日，虽然 SSD 已经成为很多数据库管理员的选择，但传统">
 <meta itemprop="datePublished" content="2020-11-26T00:00:00+00:00" />
 <meta itemprop="dateModified" content="2020-11-26T00:00:00+00:00" />
-<meta itemprop="wordCount" content="4027">
+<meta itemprop="wordCount" content="4026">
 
 
 
@@ -134,7 +134,7 @@
         <div class="post-category">
             <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
             </div>
-          <span class="more-meta"> 约 4027 字 </span>
+          <span class="more-meta"> 约 4026 字 </span>
           <span class="more-meta"> 预计阅读 9 分钟 </span>
         
       </div>
@@ -188,7 +188,7 @@
 <h2 id="硬盘性能的度量">硬盘性能的度量</h2>
 <p>硬盘常规的一次 I/O 需要 3 步，每一步都有相关的延迟，可以将 I/O 访问时间（access time）表示为 3 部分之和：</p>
 <ul>
-<li>寻道时间（seek time）：将读写磁头组合定位在访问块所在磁道的柱面上所需要的时间；</li>
+<li>寻道时间（seek time）：将读写磁头组合定位在访问块所在磁道的柱面上所需要的时间</li>
 <li>旋转延迟（rotational latency）：等待访问块的第一个扇区旋转到磁头下的时间；</li>
 <li>传输时间（transfer time）：完成数据传输需要的时间，取决于硬盘数据传输率；</li>
 </ul>
@@ -353,7 +353,11 @@
           <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E5%AD%98%E5%82%A8/">分布式存储</a>
           </div>
       <nav class="post-nav">
-        
+        <a class="prev" href="/post/leveldb-index/">
+            <i class="iconfont icon-left"></i>
+            <span class="prev-text nav-default">Leveldb 基本介绍和使用指南</span>
+            <span class="prev-text nav-mobile">上一篇</span>
+          </a>
         <a class="next" href="/post/understanding-multi-paxos/">
             <span class="next-text nav-default">用 Raft 的方式理解 Multi-Paxos</span>
             <span class="next-text nav-mobile">下一篇</span>
