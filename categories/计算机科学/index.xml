@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Mon, 30 Nov 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sun, 13 Dec 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Golang 实现 Paxos 分布式共识算法</title>
+      <link>https://tangwz.com/post/impl-basic-paxos/</link>
+      <pubDate>Sun, 13 Dec 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/impl-basic-paxos/</guid>
+      <description>前文《理解 Paxos》只包含伪代码，帮助了理解但又不够爽，既然现在都讲究 Talk is cheap. Show me the code. 这次就把文章中的伪代码用 Go 语言实现出来，希望能帮助各位</description>
+    </item>
+    
     <item>
       <title>Leveldb 基本介绍和使用指南</title>
       <link>https://tangwz.com/post/leveldb-index/</link>
