@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>软件工程 on Tangwz - 我想要说的，前人们都说过了</title>
+    <link>https://tangwz.com/categories/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/</link>
+    <description>Recent content in 软件工程 on Tangwz - 我想要说的，前人们都说过了</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <copyright>Tangwz</copyright>
+    <lastBuildDate>Thu, 07 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title> 软件架构基础 1：基本介绍</title>
+      <link>https://tangwz.com/post/fosa1/</link>
+      <pubDate>Thu, 07 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/fosa1/</guid>
+      <description>《软件架构基础（Fundamentals of Software Architecture）》被誉为和《设计数据密集型应用》一样经典的后端书籍，架构师的入门指南。</description>
+    </item>
+    
+  </channel>
+</rss>
