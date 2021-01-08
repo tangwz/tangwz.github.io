@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Thu, 07 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Fri, 08 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title> 软件架构基础 2：架构思维</title>
+      <link>https://tangwz.com/post/fosa2/</link>
+      <pubDate>Fri, 08 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/fosa2/</guid>
+      <description>架构思维指用架构的眼光和观点来看待事物，主要包括： 理解软件架构和软件设计的区别，知道与开发团队合作，并让架构发挥作用。 拥有技术广度的同时，保</description>
+    </item>
+    
     <item>
       <title> 软件架构基础 1：基本介绍</title>
       <link>https://tangwz.com/post/fosa1/</link>
