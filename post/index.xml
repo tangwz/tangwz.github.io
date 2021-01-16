@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Fri, 08 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 14 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title> 软件架构基础 3: 什么是好的模块化代码？高内聚、低耦合如何衡量？</title>
+      <link>https://tangwz.com/post/fosa3/</link>
+      <pubDate>Thu, 14 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/fosa3/</guid>
+      <description>0. 写在前面 什么是好的代码？好的代码应该模块化。 王垠在其《编程的智慧》中也提到，要“写模块化的代码”。(不对人做评价，这篇文章写得是非常好的。</description>
+    </item>
+    
     <item>
       <title> 软件架构基础 2：架构思维</title>
       <link>https://tangwz.com/post/fosa2/</link>
