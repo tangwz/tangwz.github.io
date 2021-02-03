@@ -121,115 +121,46 @@
           <section id="posts" class="posts">
     <article class="post">
   <header class="post-header">
-    <h1 class="post-title"><a class="post-link" href="/post/raft-exam/">Raft 作者亲自出的 Raft 试题，你能做对几道？</a></h1>
+    <h1 class="post-title"><a class="post-link" href="/post/consensus/">分布式系统的核心：共识问题</a></h1>
     <div class="post-meta">
-      <span class="post-time"> 2020-10-26 </span>
+      <span class="post-time"> 2020-09-06 </span>
       <div class="post-category">
           <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
           </div>
-        <span class="more-meta"> 约 3610 字 </span>
-        <span class="more-meta"> 预计阅读 8 分钟 </span>
+        <span class="more-meta"> 约 5383 字 </span>
+        <span class="more-meta"> 预计阅读 11 分钟 </span>
     </div>
   </header>
   
   <div class="post-content">
     <div class="post-summary">
-      试题 1. （4 分）下面的每张图都显示了一台 Raft 服务器上可能存储的日志（日志内容未显示，只显示日志的 index 和任期号）。考虑每份日志都是独立的，下面的日志
+      混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成
     </div>
     <div class="read-more">
-      <a href="/post/raft-exam/" class="read-more-link">阅读更多</a>
+      <a href="/post/consensus/" class="read-more-link">阅读更多</a>
     </div>
   </div>
 </article>
 
     <article class="post">
   <header class="post-header">
-    <h1 class="post-title"><a class="post-link" href="/post/paxos-exam/">Raft 作者出的 Paxos 的试题</a></h1>
+    <h1 class="post-title"><a class="post-link" href="/post/intro-distributed-system/">认识分布式系统</a></h1>
     <div class="post-meta">
-      <span class="post-time"> 2020-10-26 </span>
+      <span class="post-time"> 2020-08-18 </span>
       <div class="post-category">
           <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
           </div>
-        <span class="more-meta"> 约 2269 字 </span>
+        <span class="more-meta"> 约 2133 字 </span>
         <span class="more-meta"> 预计阅读 5 分钟 </span>
     </div>
   </header>
   
   <div class="post-content">
     <div class="post-summary">
-      试题 1. (4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志（每个条目中的数字代表 acceptedProposal 值）。考虑每份日志都是独立的，下列日志是否可能发生在正确实现
+      Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解
     </div>
     <div class="read-more">
-      <a href="/post/paxos-exam/" class="read-more-link">阅读更多</a>
-    </div>
-  </div>
-</article>
-
-    <article class="post">
-  <header class="post-header">
-    <h1 class="post-title"><a class="post-link" href="/post/multi-paxos/">Paxos 的变种（一）：Multi-Paxos</a></h1>
-    <div class="post-meta">
-      <span class="post-time"> 2020-10-18 </span>
-      <div class="post-category">
-          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
-          </div>
-        <span class="more-meta"> 约 4540 字 </span>
-        <span class="more-meta"> 预计阅读 10 分钟 </span>
-    </div>
-  </header>
-  
-  <div class="post-content">
-    <div class="post-summary">
-      分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受
-    </div>
-    <div class="read-more">
-      <a href="/post/multi-paxos/" class="read-more-link">阅读更多</a>
-    </div>
-  </div>
-</article>
-
-    <article class="post">
-  <header class="post-header">
-    <h1 class="post-title"><a class="post-link" href="/post/basic-paxos/">理解 Paxos（含伪代码）</a></h1>
-    <div class="post-meta">
-      <span class="post-time"> 2020-09-29 </span>
-      <div class="post-category">
-          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
-          </div>
-        <span class="more-meta"> 约 3236 字 </span>
-        <span class="more-meta"> 预计阅读 7 分钟 </span>
-    </div>
-  </header>
-  
-  <div class="post-content">
-    <div class="post-summary">
-      Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法
-    </div>
-    <div class="read-more">
-      <a href="/post/basic-paxos/" class="read-more-link">阅读更多</a>
-    </div>
-  </div>
-</article>
-
-    <article class="post">
-  <header class="post-header">
-    <h1 class="post-title"><a class="post-link" href="/post/git-merge-vs-rebase/">同样更新分支，git merge 和 rebase 有什么区别？</a></h1>
-    <div class="post-meta">
-      <span class="post-time"> 2020-09-13 </span>
-      <div class="post-category">
-          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
-          </div>
-        <span class="more-meta"> 约 693 字 </span>
-        <span class="more-meta"> 预计阅读 2 分钟 </span>
-    </div>
-  </header>
-  
-  <div class="post-content">
-    <div class="post-summary">
-      最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主干的代码同步，还要一次只能有一条 commit。过程中我错误地使用了一把 git merge 和 git r
-    </div>
-    <div class="read-more">
-      <a href="/post/git-merge-vs-rebase/" class="read-more-link">阅读更多</a>
+      <a href="/post/intro-distributed-system/" class="read-more-link">阅读更多</a>
     </div>
   </div>
 </article>
@@ -237,14 +168,11 @@
     </section>
   
   <nav class="pagination">
-    <a class="prev" href="/page/2/">
+    <a class="prev" href="/page/3/">
         <i class="iconfont icon-left"></i>
         <span class="prev-text">上一页</span>
       </a>
-    <a class="next" href="/page/4/">
-        <span class="next-text">下一页</span>
-        <i class="iconfont icon-right"></i>
-      </a>
+    
   </nav>
         </div>
         

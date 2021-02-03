@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Sun, 13 Dec 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 01 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>条分缕析 Raft 算法</title>
+      <link>https://tangwz.com/post/raft/</link>
+      <pubDate>Mon, 01 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/raft/</guid>
+      <description>本文整理自 Ongaro 在 Youtube 上的视频。 目标 Raft 的目标（或者说是分布式共识算法的目标）是：保证 log 完全相同地复制到多台服务器上。 只要每台服务器的日志相同，那么</description>
+    </item>
+    
     <item>
       <title>Golang 实现 Paxos 分布式共识算法</title>
       <link>https://tangwz.com/post/impl-basic-paxos/</link>

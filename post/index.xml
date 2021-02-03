@@ -7,7 +7,34 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Thu, 14 Jan 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/post/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 01 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/post/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>条分缕析 Raft 算法</title>
+      <link>https://tangwz.com/post/raft/</link>
+      <pubDate>Mon, 01 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/raft/</guid>
+      <description>本文整理自 Ongaro 在 Youtube 上的视频。 目标 Raft 的目标（或者说是分布式共识算法的目标）是：保证 log 完全相同地复制到多台服务器上。 只要每台服务器的日志相同，那么</description>
+    </item>
+    
+    <item>
+      <title>软件架构基础 5 架构特性识别与实战: 订餐系统</title>
+      <link>https://tangwz.com/post/fosa5/</link>
+      <pubDate>Mon, 25 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/fosa5/</guid>
+      <description>架构师一般从三个方面来发现架构特性： 领域关注(Domain Concerns) 需求 隐性领域知识 在《软件架构基础 4》中我们讨论了隐性领域知识，这里将介绍另外两种</description>
+    </item>
+    
+    <item>
+      <title>软件架构基础 4: 你的架构需要考虑的架构特性</title>
+      <link>https://tangwz.com/post/fosa4/</link>
+      <pubDate>Sat, 16 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/fosa4/</guid>
+      <description>一个公司决定用软件解决一个特定的问题，公司会收集该系统的需求清单。需求可以说是软件开发的基础，但除了需求以外，架构师有很多因素需要去考虑。 下</description>
+    </item>
+    
     <item>
       <title> 软件架构基础 3: 什么是好的模块化代码？高内聚、低耦合如何衡量？</title>
       <link>https://tangwz.com/post/fosa3/</link>
