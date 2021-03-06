@@ -7,7 +7,16 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en</language>
     <copyright>Tangwz</copyright>
-    <lastBuildDate>Fri, 19 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sat, 06 Mar 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>如何编写 C&#43;&#43; 20 协程(Coroutines)</title>
+      <link>https://tangwz.com/post/cpp-coroutine/</link>
+      <pubDate>Sat, 06 Mar 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/cpp-coroutine/</guid>
+      <description>C++20 带着 Coroutines 来了！ 花了一两周的时间后，我想写写 C++20 协程的基本用法，因为 C++ 的协程让我感到很奇怪，写一个协程程序十分费劲。让我们抛去复杂的东西，来看看</description>
+    </item>
+    
     <item>
       <title>条分缕析 Raft 算法(续)：日志压缩和性能优化</title>
       <link>https://tangwz.com/post/raft-extension/</link>
