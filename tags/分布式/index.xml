@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
-    <title>分布式 on Tangwz - 我想要说的，前人们都说过了</title>
+    <title>分布式 on 多颗糖</title>
     <link>https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/</link>
-    <description>Recent content in 分布式 on Tangwz - 我想要说的，前人们都说过了</description>
+    <description>Recent content in 分布式 on 多颗糖</description>
+    <image>
+      <url>https://tangwz.com/</url>
+      <link>https://tangwz.com/</link>
+    </image>
     <generator>Hugo -- gohugo.io</generator>
-    <language>en</language>
-    <copyright>Tangwz</copyright>
+    <language>en-us</language>
     <lastBuildDate>Fri, 19 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>条分缕析 Raft 算法(续)：日志压缩和性能优化</title>
@@ -14,7 +17,150 @@
       <pubDate>Fri, 19 Feb 2021 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/raft-extension/</guid>
-      <description>在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。 1 日志压缩 随着时间推移，存储的日志会越来越多，不但</description>
+      <description>在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。
+1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。
+日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。
+一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。
+和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。
+不同的压缩方法有几个核心的共同点：
+ 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。
+上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。
+memory-based 状态机的快照的大部分工作是序列化内存中的数据结构。
+通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图：</description>
+      <content:encoded><![CDATA[<p>在上篇<a href="https://mp.weixin.qq.com/s/lUbVBVzvNVxhgbcHQBbkkQ">《条分缕析 Raft 算法》</a>中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。</p>
+<h2 id="1-日志压缩">1 日志压缩</h2>
+<p>随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。</p>
+<p>日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。</p>
+<p>一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。</p>
+<p>和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。<strong>日志压缩的大部分责任都落在状态机上。</strong></p>
+<p>不同的压缩方法有几个核心的共同点：</p>
+<ul>
+<li><strong>不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志</strong>。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。）</li>
+<li><strong>将之前的 log 的维护责任从 Raft 转移到状态机</strong>。Raft 要保存最后被丢弃的记录的index和term，用于 <code>AppendEntries RPC </code>一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。</li>
+<li>一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。</li>
+</ul>
+<h3 id="11-基于内存的状态机的快照">1.1 基于内存的状态机的快照</h3>
+<p>状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/tAcXgHFsBaS2P4V.jpg" alt=""  />
+</p>
+<p>上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。</p>
+<p><strong>memory-based 状态机的快照的大部分工作是序列化内存中的数据结构</strong>。</p>
+<p>通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 <code>InstallSnapshot RPC</code> 来传输。你肯定在论文中看过下图：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/Zsaif9XzjgPo8Kb.jpg" alt=""  />
+</p>
+<h4 id="111-快照的并发性">1.1.1 快照的并发性</h4>
+<p>创建一个快照需要耗费很长时间，包括序列化和写入磁盘。</p>
+<blockquote>
+<p>例如，在今天的服务器上拷贝 10GB 的内存花费大约1秒钟，序列化它通常将花费更长的时间：即使 SSD 1秒钟也仅能写入大约 100MB。</p>
+</blockquote>
+<p>因此，序列化和写快照都要与常规操作并发进行，避免服务不可用。</p>
+<p>copy-on-write 技术允许进行新的更新而不影响写快照。有两个方法来实现：</p>
+<ul>
+<li>状态机可以用不可变的(immutable)数据结构来实现。因为状态机命令不会 in-place 的方式来修改状态(通常使用追加的方式)，快照任务可以引用之前状态的并把状态一致地写入到快照。</li>
+<li>另外，也可以使用操作系统的 copy-on-write。例如，在 Linux 上可以使用 fork 来复制父进程的整个地址空间，然后子进程就可以把状态机的状态写出并退出，整个过程中父进程都可以持续地提供服务。<a href="https://github.com/logcabin/logcabin">LogCabin</a>中当前使用的就是这种方法。</li>
+</ul>
+<h4 id="112-何时做快照">1.1.2 何时做快照</h4>
+<p>服务器需要决定什么时候做快照。太过频繁地做快照，将会浪费磁盘带宽和其他资源；太不频繁地做快照，则有存储空间耗尽的风险，并且重启服务需要更长的重放日志时间。</p>
+<p>一个简单的策略是设置一个阈值，当日志大小超过阈值则做快照。然而，这会导致对于小型状态机时有着不必要的大日志。</p>
+<p>一个更好的方法是引入快照大小和日志大小的对比，如果日志超过快照好几倍，可能就需要做快照。但是在做快照之前计算快照的大小是困难并且繁重的，会引入额外负担。所以使用前一个快照的大小是比较合理的行为，一旦日志大小超过之前的快照的大小乘以扩展因子(expansion factor)，服务器就做快照。</p>
+<p>这个扩展因子权衡空间和带宽利用率。例如，扩展因子为 4 的话会有 20% 的带宽用于快照(每1byte 的快照写入有对应的 4bytes 的 log 写入)和大约 6 倍的硬盘空间使用(旧的快照+日志+新的快照)。</p>
+<p>快照仍然会导致 CPU 和磁盘的占用率突发，可以增加额外的磁盘来减轻该现象。</p>
+<p>同时，可以通过调度使得做快照对客户端请求没有影响。服务器需要协调保证在某一时刻集群只有小部分成员集同时在做快照。由于 Raft 是多数派成员构成的 commit，所以这样就不会影响请求的提交了。当 Leader 想做快照的时候，首先要先下台，让其他服务器选出另一个 Leader 接替工作。如果这个方法充分地可行，就可能消除快照的并发，服务器在快照期间其实是不可用的(这可能会造成集群的容错能力降低的问题)。这是一个令人兴奋的提升集群性能并降低实现机制的机会。（这里其实可以通过实现指定服务器做快照来优化，braft 里就有提到这点。）</p>
+<h4 id="113-实现的关注点">1.1.3 实现的关注点</h4>
+<p>这一节回顾快照的主要组件的实现并讨论实现的难点：</p>
+<ul>
+<li><strong>保存和加载快照</strong>：保存快照需要对其序列化并写入磁盘，而加载则是反序列化。通过流式接口(streaming interface)可以避免将整个快照缓冲到内存中。可能对流进行压缩并附带一个 checksum 比较好。LogCabin 先把快照写入一个临时文件，当写完并且刷到磁盘后，再把文件改名。这是为了避免server启动的时候加载到部分的快照。</li>
+<li><strong>传输快照</strong>：传输快照牵涉到如何实现 <code>InstallSnapshot RPC</code>。传输的性能通常不是非常重要(一个需要这种动作的 Follower 不会参与到日志的 commit 决策中，因此不需要立即完成)。</li>
+<li><strong>消除不安全的日志访问和丢弃日志条目</strong>：最初设计 LogCabin 的时候没有考虑日志压缩，因此代码上假定了如果 entry i 在日志中，那么 entry 1 到 i - 1 也一定在日志中。有了日志压缩，这就不再成立了，前面的 entry 可能已经被丢弃了。这里需要仔细推理和测试。可能对一些强类型的系统做这些是简单的，编译器会强制检查日志访问并处理越界的问题。一旦我们使得所有的日志访问都是安全的，丢弃前面的日志就很直接了。在这之前，我们都只能单独地测试保存、加载和传输快照。</li>
+<li><strong>通过 copy-on-write 并发地做快照</strong>：可能需要重新设计状态机或利用操作系统的 fork。LogCabin 当前使用的是 fork，相比于线程交互性很差，要使其正确工作也有一定的难度。然而，它的代码量很小，而且不需要修改状态机数据结构。</li>
+<li><strong>决定何时做快照</strong>：我们建议<strong>在开发的过程中每应用一条日志就做一个快照，这样便于快速定位问题</strong>。一旦实现完成，就需要增加一个更有效的机制选择什么时候做快照。</li>
+</ul>
+<h3 id="12-基于磁盘的状态机的快照">1.2 基于磁盘的状态机的快照</h3>
+<p>对于几十或上百 GB 的状态机，需要使用磁盘作为主要存储。对于每一条记录，当其被提交并应用到状态机后，其实就可以被丢弃了，因为磁盘已经持久化存储了，可以理解为每条日志就做了一个快照。</p>
+<p>Disk-based 状态机的主要问题是，磁盘会导致性能不佳。在没有写缓冲的情况下，每应用一条命了都需要进行一次或多次随机磁盘写入，这会限制系统的整体吞吐量。</p>
+<p>Disk-based 状态机仍然需要支持向日志落后的 Follower 提供最新的快照，而写快照也要继续提供服务，所以仍然需要 copy-on-write 技术以在一定期间内保持一个一致地快照传输。幸运的是，磁盘总是被划分为逻辑块，因此在状态机中实现应该是直接的。基于磁盘的状态机也可以依靠操作系统的支持，例如 Linux 的 LVM 也可以用来创建快照。</p>
+<h4 id="121-增量清理的方法">1.2.1 增量清理的方法</h4>
+<p>增量的方法做压缩如 log cleaning 或 LSM tree，是可能的。他们快照的实现会更复杂，但有如下优点：</p>
+<ul>
+<li>每次只操作数据的一部分，所以压缩的负载随着时间来看是均匀的。</li>
+<li>写入磁盘的效率更高。它们使用大范围的、连续的写入。递增清理的方法可以有选择的压缩磁盘中拥有最多可重复使用空间的部分，可以写入更少的数据。</li>
+<li>传递快照更为简单，因为它们不会 in-place 地修改磁盘的区域。</li>
+</ul>
+<h4 id="122-log-cleaning">1.2.2 Log cleaning</h4>
+<p>来自于 <a href="https://people.eecs.berkeley.edu/~brewer/cs262/LFS.pdf">The Design and Implementation of a Log-Structured File System</a>。</p>
+<p>Log cleaning 写入时直接追加，日志被切分为多个连续的 Segments。每一个 segment 通过以下三个步骤进行压缩：</p>
+<ul>
+<li>首先选择要清理的段，这些段累积了大量废弃的记录；</li>
+<li>把有效的记录(live entry)从那些段中拷贝到日志的开头</li>
+<li>释放那些段的空间</li>
+</ul>
+<p>为了最小化对正常操作的影响，这个过程应该并发地做。</p>
+<p>由于将有效的记录转存到日志的头部，日志出现乱序，可以包含附加的信息(比如 version number)以在日志应用的时候重建正确的顺序。</p>
+<p>选择哪些段做清理的策略对性能有非常大的影响。Log cleaning 建立了一个模型，不仅考虑live entry 的占比，同时考虑这些 entry 会存活多长时间。<strong>但不幸的是，每个状态机的 live entry 会有所不同</strong>。</p>
+<h4 id="123-lsm-tree">1.2.3 LSM tree</h4>
+<p>LSM tree 由于 BigTable 的提出被广泛使用。</p>
+<p>LSM tree 是树型的数据结构，存储有序的键值对。在高层次上和 Log cleaning 一样：大的顺序写并且不 in-place 地修改磁盘上的数据。。然而，LSM tree 并没有在日志中维护所有状态，而是重新组织状态以便更好地进行随机读。</p>
+<p>典型的 LSM tree 将最近的写入在磁盘上保持一份小的 log。当 log 达到一定的大小后，对 key 进行排序并且写入一个叫做 run 的文件中。Runs 不会 in-place 修改，但是会周期性地对 runs 进行 merge，产生新的 runs 并丢弃旧的，merge 的过程像 merge sort。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/oWIq71g9eakLO6r.jpg" alt=""  />
+</p>
+<p>在正常操作期间，状态机可以直接在这些数据上操作。对于读一个 key 来说，首先检查是否在最近的 log 中有修改，之后检查每一个 run。为了避免对每一个 run 做 key 的检查，一些系统对每一个 run 创建了 bloom filter。</p>
+<h4 id="124-raft-中的-log-cleaning-和-lsm-tree">1.2.4 Raft 中的 Log cleaning 和 LSM tree</h4>
+<p>LogCabin 还未实现 Log cleaning 或 LSM tree，把 LSM tree 应用到 Raft 是直截了当的，因为 Raft 日志已经将最近的记录持久地存储在磁盘上，LSM tree 可以将最近的数据以更方便的树型保存在内存中，这将提高查找的性能。并且当 Raft 日志达到指定大小的时候，这个树按顺序写到磁盘作为一个新的 run。传输状态的时候 Leader 需要把所有的 run 发送给Follower(不包含内存中的树)；幸运的是，runs 都是不可变的，所以不必担心传输过程中 runs 被修改。</p>
+<p>把 Log cleaning 应用到 Raft 就不是这么明显了。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/KwAeYbOmDtnuWoy.jpg" alt=""  />
+</p>
+<h3 id="13-其它日志压缩">1.3 其它日志压缩</h3>
+<p>略。</p>
+<h2 id="2-性能优化">2 性能优化</h2>
+<h3 id="21-writing-to-the-leaders-disk-in-parallel">2.1 Writing to the leader’s disk in parallel</h3>
+<p>在前面的实现中，Leader 将日志写到磁盘后，再将该日志复制到它的 Follower，然后等待 Follower 将该日志写到他们的磁盘上。这里出现了两次连续的磁盘写入等待，这将导致显著的延迟。</p>
+<p>Leader 可以在向 Follower 并行复制日志的同时写入自己的磁盘，如图：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/3Ztc6qVuaB7bXKO.jpg" alt=""  />
+</p>
+<p>a 是没有并行优化的，而 b 是进行并行优化的。</p>
+<p>如果多数派 Follower 已经写入磁盘，Leader 甚至可以在该记录写入自己的磁盘之前就提交，这仍然是安全的。</p>
+<h3 id="22-batch-和-pipeline">2.2 Batch 和 Pipeline</h3>
+<p>Raft 支持 Batch 和 Pipeline，这两者对性能提升都很重要。</p>
+<ul>
+<li>Batch：Leader 可以一次收集多个客户端 requests，然后一批发送给 Follower。当然，我们也需要有一个最大发送 size 来限制每次最多可以发送多少数据，LogCabin 使用 1M 大小。</li>
+<li>Pipeline：如果只是用 batch，Leader 还是需要等待 Follower 返回才能继续后面的流程，我们这里还可以使用 Pipeline 来进行加速。Leader 会维护一个 <code>nextIndex</code> 的变量来表示下一个给 Follower 发送的 log 位置，通常情况下，只要 Leader 跟 Follower 建立起了连接，我们都会认为网络是稳定互通的。所以当 Leader 给 Follower 发送了一批 log 之后，它可以直接更新 <code>nextIndex</code>，并且立刻发送后面的 log，不需要等待 Follower 的返回。如果网络出现了错误，或者 Follower 返回一些错误，Leader 就重新调整 <code>nextIndex</code>，然后重新发送 log。</li>
+</ul>
+<p><code>AppendEntries RPC</code> 一致性检查保证了 pipeline 的安全性，但是，如果 RPC 失败/超时了，Leader 就要将 <code>nextIndex</code> 递减回到初始值重来。如果 <code>AppendEntries RPC</code> 一致性检查还是失败，Leader 可能进一步递减 <code>nextIndex</code> 重试发送前一个记录，或者等待前一个记录被确认。</p>
+<p>最初的线程架构阻碍了 pipeline，因为它只能支持每个 Follower 一个 RPC。这里 Leader 必须多线程地与一个 Follower 建立多个连接。</p>
+<p>如果 Leader 与一个 Follower 共用一个连接使用 pipeline 的话, 那么效果会是怎样的呢?其实这样和 Batch 没有多大区别，tcp 层面已经是串行的了，tcp 有滑动窗口来做 batch，同时单条连接保证了消息很少会乱序。</p>
+<p>那么，如果使用多线程连接的话可能存在什么问题？即使因为在多个连接中不能保证有序，但是大部分情况还是先发送的先到达；即使后发送的先到达了，由于有 <code>AppendEntries RPC</code> 一致性检查的存在，后发送的自然会失败，失败后重试即可。</p>
+<p>Raft 系统的整体性能在很大程度上取决于如何安排 batch 和 pipeline。如果在高负载的情况下，一个 batch 中积累的请求数量不够，整体处理效率就会很低，导致低吞吐量和高延迟。另一方面，如果在一个 batch 中积累了太多的请求，延迟将不必要地变高，因为早期的请求要等待后来的请求到达。</p>
+<h3 id="23-pre-vote">2.3 pre-vote</h3>
+<p>网络分区会导致某个节点的数据与集群最新数据差距拉大，但是 term 因为不断尝试选主而变得很大。网络恢复之后，Leader 向其进行日志复制时，就会导致 Leader 因为 term 较小而下台。这种情况可以引入 pre-vote 来避免。Follower 在转变为 Candidate 之前，先与集群节点通信，获得集群 Leader 是否存活的信息，如果当前集群有 Leader 存活，Follower 就不会转变为 Candidate，也不会增加term。</p>
+<h3 id="24-multiraft">2.4 MultiRaft</h3>
+<p>来自 CockroachDB 的优化：https://www.cockroachlabs.com/blog/scaling-RAFT/</p>
+<p>Raft 的 Leader 向 Follower 的心跳间隔一般都较小，在 100ms 粒度，当复制实例数较多的时候，心跳包的数量就呈指数增长。如图：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/1FdxmHgjYuTwOqk.jpg" alt=""  />
+</p>
+<p>这里将复制组之间的心跳合并到节点之间的心跳。如图：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/zcNXjMZSORmeyn1.jpg" alt=""  />
+</p>
+<p><a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">braft 提供了静默模式</a>：通常复制组不需要频繁的切换 Leader，我们可以将主动 Leader Election 的功能关闭，这样就不需要维护 Leader Lease 的心跳了。复制组依靠业务 Master 进行被动触发 Leader Election，这个可以只在 Leader 节点宕机时触发，整体的心跳数就从复制实例数降为节点数。</p>
+<h2 id="reference">Reference</h2>
+<ol>
+<li>
+<p><a href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf">CONSENSUS BRIDGING THEORY AND PRACTICE</a>: <a href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf">https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf</a></p>
+</li>
+<li>
+<p><a href="http://mysql.taobao.org/monthly/2019/03/08/">理论基础 · Raft phd 论文中的pipeline 优化</a>: <a href="http://mysql.taobao.org/monthly/2019/03/08/">http://mysql.taobao.org/monthly/2019/03/08/</a></p>
+</li>
+<li>
+<p><a href="https://zhuanlan.zhihu.com/p/25735592">TiKV 源码解析系列 - Raft 的优化</a>: <a href="https://zhuanlan.zhihu.com/p/25735592">https://zhuanlan.zhihu.com/p/25735592</a></p>
+</li>
+<li>
+<p><a href="https://www.cockroachlabs.com/blog/scaling-RAFT/">Scaling Raft</a>: <a href="https://www.cockroachlabs.com/blog/scaling-RAFT/">https://www.cockroachlabs.com/blog/scaling-RAFT/</a></p>
+</li>
+<li>
+<p><a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">RAFT介绍</a>: <a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md</a></p>
+</li>
+</ol>
+<h2 id="相关阅读">相关阅读</h2>
+]]></content:encoded>
     </item>
     
     <item>
@@ -23,7 +169,348 @@
       <pubDate>Mon, 01 Feb 2021 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/raft/</guid>
-      <description>本文整理自 Ongaro 在 Youtube 上的视频。 目标 Raft 的目标（或者说是分布式共识算法的目标）是：保证 log 完全相同地复制到多台服务器上。 只要每台服务器的日志相同，那么</description>
+      <description>本文整理自 Ongaro 在 Youtube 上的视频。
+目标 Raft 的目标（或者说是分布式共识算法的目标）是：保证 log 完全相同地复制到多台服务器上。
+只要每台服务器的日志相同，那么，在不同服务器上的状态机以相同顺序从日志中执行相同的命令，将会产生相同的结果。
+共识算法的工作就是管理这些日志。
+系统模型 我们假设：
+ 服务器可能会宕机、会停止运行过段时间再恢复，但是非拜占庭的（即它的行为是非恶意的，不会篡改数据等）； 网络通信会中断，消息可能会丢失、延迟或乱序；可能会网络分区；  Raft 是基于 Leader 的共识算法，故主要考虑：
+ Leader 正常运行 Leader 故障，必须选出新的 Leader  优点：只有一个 Leader，简单。
+难点：Leader 发生改变时，可能会使系统处于不一致的状态，因此，下一任 Leader 必须进行清理；
+我们将从 6 个部分解释 Raft：
+ Leader 选举； 正常运行：日志复制（最简单的部分）； Leader 变更时的安全性和一致性（最棘手、最关键的部分）； 处理旧 Leader：旧的 Leader 并没有真的下线怎么办？ 客户端交互：实现线性化语义(linearizable semantics)； 配置变更：如何在集群中增加或删除节点；  开始之前 开始之前需要了解 Raft 的一些术语。
+服务器状态 服务器在任意时间只能处于以下三种状态之一：
+ Leader：处理所有客户端请求、日志复制。同一时刻最多只能有一个可行的 Leader； Follower：完全被动的（不发送 RPC，只响应收到的 RPC）——大多数服务器在大多数情况下处于此状态； Candidate：用来选举新的 Leader，处于 Leader 和 Follower 之间的暂时状态；  系统正常运行时，只有一个 Leader，其余都是 Followers.</description>
+      <content:encoded><![CDATA[<p><em>本文整理自 Ongaro 在 Youtube 上的视频。</em></p>
+<h1 id="目标">目标</h1>
+<p>Raft 的目标（或者说是分布式共识算法的目标）是：<strong>保证 log 完全相同地复制到多台服务器上</strong>。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/LsBmFw8ZUIJuNXP.jpg" alt="-w1001"  />
+</p>
+<p>只要每台服务器的日志相同，那么，在不同服务器上的状态机以相同顺序从日志中执行相同的命令，将会产生相同的结果。</p>
+<p>共识算法的工作就是管理这些日志。</p>
+<h1 id="系统模型">系统模型</h1>
+<p>我们假设：</p>
+<ul>
+<li>服务器可能会宕机、会停止运行过段时间再恢复，但是<strong>非拜占庭的</strong>（即它的行为是非恶意的，不会篡改数据等）；</li>
+<li>网络通信会中断，消息可能会丢失、延迟或乱序；可能会网络分区；</li>
+</ul>
+<p>Raft 是基于 Leader 的共识算法，故主要考虑：</p>
+<ul>
+<li>Leader 正常运行</li>
+<li>Leader 故障，必须选出新的 Leader</li>
+</ul>
+<p>优点：只有一个 Leader，简单。</p>
+<p>难点：<strong>Leader 发生改变时，可能会使系统处于不一致的状态，因此，下一任 Leader 必须进行清理；</strong></p>
+<p>我们将从 6 个部分解释 Raft：</p>
+<ol>
+<li>Leader 选举；</li>
+<li>正常运行：日志复制（最简单的部分）；</li>
+<li>Leader 变更时的安全性和一致性（最棘手、最关键的部分）；</li>
+<li>处理旧 Leader：旧的 Leader 并没有真的下线怎么办？</li>
+<li>客户端交互：实现线性化语义(linearizable semantics)；</li>
+<li>配置变更：如何在集群中增加或删除节点；</li>
+</ol>
+<h1 id="开始之前">开始之前</h1>
+<p>开始之前需要了解 Raft 的一些术语。</p>
+<h2 id="服务器状态">服务器状态</h2>
+<p>服务器在任意时间只能处于以下三种状态之一：</p>
+<ul>
+<li>Leader：处理所有客户端请求、日志复制。同一时刻最多只能有一个可行的 Leader；</li>
+<li>Follower：完全被动的（不发送 RPC，只响应收到的 RPC）——大多数服务器在大多数情况下处于此状态；</li>
+<li>Candidate：用来选举新的 Leader，处于 Leader 和 Follower 之间的暂时状态；</li>
+</ul>
+<p><strong>系统正常运行时，只有一个 Leader，其余都是 Followers.</strong></p>
+<p>状态转换图：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/JRt5QCUgKOHfj1A.jpg" alt="-w935"  />
+</p>
+<h2 id="任期">任期</h2>
+<p>时间被划分成一个个的<strong>任期(Term)</strong>，每个任期都由一个数字来表示任期号，任期号单调递增并且永远不会重复。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/8qQX6wrioezWEav.jpg" alt="-w735"  />
+</p>
+<p>一个正常的任期至少有一个 Leader，通常分为两部分：</p>
+<ul>
+<li>任期开始时的选举过程；</li>
+<li>正常运行的部分；</li>
+</ul>
+<p>有些任期可能没有选出 Leader（如图 Term 3），这时候会立即进入下一个任期，再次尝试选出一个 Leader。</p>
+<p>每个节点维护一个 <code>currentTerm</code> 变量，表示系统中当前任期。<code>currentTerm</code> <strong>必须持久化存储</strong>，以便在服务器宕机重启时将其恢复。</p>
+<p>**任期非常重要！任期能够帮助 Raft 识别过期的信息。**例如：如果 <code>currentTerm = 2</code> 的节点与 <code>currentTerm = 3</code> 的节点通信，我们可以知道第一个节点上的信息是过时的。</p>
+<p>我们只使用最新任期的信息。后面我们会遇到各种情况，去检测和消除不是最新任期的信息。</p>
+<h2 id="两个-rpc">两个 RPC</h2>
+<p>Raft 中服务器之间所有类型的通信通过两个 RPC 调用：</p>
+<ul>
+<li><code>RequestVote</code>：用于选举；</li>
+<li><code>AppendEntries</code>：用于复制 log 和发送心跳；</li>
+</ul>
+<h1 id="1-leader-选举">1. Leader 选举</h1>
+<h2 id="启动">启动</h2>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/J4FBX29fgucDV7l.jpg" alt="-w870"  />
+</p>
+<ul>
+<li>节点启动时，都是 Follower 状态；</li>
+<li>Follower 被动地接受 Leader 或 Candidate 的 RPC；</li>
+<li>所以，如果 Leader 想要保持权威，必须向集群中的其它节点发送心跳包（空的 <code>AppendEntries RPC</code>）；</li>
+<li>等待选举超时(<code>electionTimeout</code>，一般在 100~500ms)后，Follower 没有收到任何 RPC：
+<ul>
+<li>Follower 认为集群中没有 Leader</li>
+<li>开始新的一轮选举</li>
+</ul>
+</li>
+</ul>
+<h2 id="选举">选举</h2>
+<p>当一个节点开始竞选：</p>
+<ul>
+<li>增加自己的 <code>currentTerm</code></li>
+<li>转为 Candidate 状态，<strong>其目标是获取超过半数节点的选票，让自己成为 Leader</strong></li>
+<li><strong>先给自己投一票</strong></li>
+<li>并行地向集群中其它节点发送 <code>RequestVote RPC</code> 索要选票，如果没有收到指定节点的响应，它会反复尝试，直到发生以下三种情况之一：</li>
+</ul>
+<ol>
+<li>获得超过半数的选票：成为 Leader，并向其它节点发送 <code>AppendEntries</code> 心跳；</li>
+<li>收到来自 Leader 的 RPC：转为 Follower；</li>
+<li>其它两种情况都没发生，没人能够获胜(<code>electionTimeout</code> 已过)：增加 <code>currentTerm</code>，开始新一轮选举；</li>
+</ol>
+<p>流程图如下：
+<img loading="lazy" src="https://i.loli.net/2021/02/03/4WmUxfkB56CRAp3.jpg" alt="-w542"  />
+</p>
+<h2 id="选举安全性">选举安全性</h2>
+<p>选举过程需要保证两个特性：<strong>安全性(safety)<strong>和</strong>活性(liveness)</strong>。</p>
+<p>安全性(safety)：一个任期内只会有一个 Leader 被选举出来。需要保证：</p>
+<ul>
+<li>每个节点在同一任期内只能投一次票，它将投给第一个满足条件的投票请求，然后拒绝其它 Candidate 的请求。这需要持久化存储投票信息 <code>votedFor</code>，以便宕机重启后恢复，否则重启后 <code>votedFor</code> 丢失会导致投给别的节点；</li>
+<li>只有获得超过半数节点的选票才能成为 Leader，也就是说，两个不同的 Candidate 无法在同一任期内都获得超过半数的票；</li>
+</ul>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/CmEIAMG1HV4XiLB.jpg" alt="-w794"  />
+</p>
+<p>活性(liveness)：确保最终能选出一个 Leader。</p>
+<p>问题是：原则上我们可以无限重复分割选票，假如选举同一时间开始，同一时间超时，同一时间再次选举，如此循环。</p>
+<p>解决办法很简单：</p>
+<ul>
+<li>节点随机选择超时时间，通常在 [T, 2T] 之间（T = <code>electionTimeout</code>）</li>
+<li>这样，节点不太可能再同时开始竞选，先竞选的节点有足够的时间来索要其他节点的选票</li>
+<li>T &raquo; broadcast time(T 远大于广播时间)时效果更佳</li>
+</ul>
+<h1 id="2-日志复制">2. 日志复制</h1>
+<h2 id="日志结构">日志结构</h2>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/1CcUMnIhJeBkbYj.jpg" alt="-w1019"  />
+</p>
+<p>每个节点存储自己的日志副本(<code>log[]</code>)，每条日志记录包含：</p>
+<ul>
+<li>索引：该记录在日志中的位置</li>
+<li>任期号：该记录首次被创建时的任期号</li>
+<li>命令</li>
+</ul>
+<p>**日志必须持久化存储。**一个节点必须先将记录安全写到磁盘，才能向系统中其他节点返回响应。</p>
+<p>如果一条日志记录被存储在超过半数的节点上，我们认为该记录<strong>已提交</strong>(<code>committed</code>)——这是 Raft 非常重要的特性！如果一条记录已提交，意味着状态机可以安全地执行该记录。</p>
+<p>在上图中，第 1-7 条记录被提交，第 8 条尚未提交。</p>
+<blockquote>
+<p>提醒：多数派复制了日志即已提交，这个定义并不精确，我们会在后面稍作修改。</p>
+</blockquote>
+<h2 id="正常运行">正常运行</h2>
+<ul>
+<li>客户端向 Leader 发送命令，希望该命令被所有状态机执行；</li>
+<li>Leader 先将该命令追加到自己的日志中；</li>
+<li>Leader 并行地向其它节点发送 <code>AppendEntries RPC</code>，等待响应；</li>
+<li>收到超过半数节点的响应，则认为新的日志记录是被提交的：
+<ul>
+<li>Leader 将命令传给自己的状态机，然后向客户端返回响应</li>
+<li>此外，一旦 Leader 知道一条记录被提交了，将在后续的 <code>AppendEntries RPC</code> 中通知已经提交记录的 Followers</li>
+<li>Follower 将已提交的命令传给自己的状态机</li>
+</ul>
+</li>
+<li>如果 Follower 宕机/超时：Leader 将反复尝试发送 RPC；</li>
+<li>性能优化：Leader 不必等待每个 Follower 做出响应，只需要超过半数的成功响应（确保日志记录已经存储在超过半数的节点上）——一个很慢的节点不会使系统变慢，因为 Leader 不必等他；</li>
+</ul>
+<h2 id="日志一致性">日志一致性</h2>
+<p>Raft 尝试在集群中保持日志较高的一致性。</p>
+<p><strong>Raft 日志的 index 和 term 唯一标示一条日志记录。</strong>（这非常重要！！！）</p>
+<ol>
+<li>如果两个节点的日志在相同的索引位置上的任期号相同，则认为他们具有一样的命令；<strong>从头到这个索引位置之间的日志完全相同</strong>；</li>
+<li><strong>如果给定的记录已提交，那么所有前面的记录也已提交</strong>。</li>
+</ol>
+<h2 id="appendentries-一致性检查"><code>AppendEntries</code> 一致性检查</h2>
+<p>Raft 通过 <code>AppendEntries RPC</code> 来检测这两个属性。</p>
+<ul>
+<li>对于每个 <code>AppendEntries RPC</code> 包含新日志记录<strong>之前那条记录的</strong>索引(<code>prevLogIndex</code>)和任期(<code>prevLogTerm</code>)；</li>
+<li>Follower 检查自己的 index 和 term 是否与 <code>prevLogIndex</code> 和 <code>prevLogTerm</code> 匹配，匹配则接收该记录；否则拒绝；</li>
+</ul>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/BkCdlbF34aQJhz9.jpg" alt="-w1018"  />
+</p>
+<h1 id="3-leader-更替">3. Leader 更替</h1>
+<p>当新的 Leader 上任后，日志可能不会非常干净，因为前一任领导可能在完成日志复制之前就宕机了。<strong>Raft 对此的处理方式是：无需采取任何特殊处理。</strong></p>
+<p>当新 Leader 上任后，他不会立即进行任何清理操作，他将会在正常运行期间进行清理。</p>
+<p>原因是当一个新的 Leader 上任时，往往意味着有机器故障了，那些机器可能宕机或网络不通，所以没有办法立即清理他们的日志。在机器恢复运行之前，我们必须保证系统正常运行。</p>
+<p>**大前提是 Raft 假设了 Leader 的日志始终是对的。**所以 Leader 要做的是，随着时间推移，让所有 Follower 的日志最终都与其匹配。</p>
+<p>但与此同时，Leader 也可能在完成这项工作之前故障，日志会在一段时间内堆积起来，从而造成看起来相当混乱的情况，如下所示：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/6LSfxX48Pzs92Yq.jpg" alt="-w534"  />
+</p>
+<p>因为我们已经知道 index 和 term 是日志记录的唯一标识符，这里不再显示日志包含的命令，下同。</p>
+<p>如图，这种情况可能出现在 S4 和 S5 是任期 2、3、4 的 Leader，但不知何故，他们没有复制自己的日志记录就崩溃了，系统分区了一段时间，S1、S2、S3 轮流成为了任期 5、6、7 的 Leader，但无法与 S4、S5 通信以进行日志清理——所以我们看到的日志非常混乱。</p>
+<p><strong>唯一重要的是，索引 1-3 之间的记录是已提交的(已存在多数派节点)，因此我们必须确保留下它们</strong>。</p>
+<p>其它日志都是未提交的，我们还没有将这些命令传递给状态机，也没有客户端会收到这些执行的结果，所以不管是保留还是丢弃它们都无关紧要。</p>
+<h2 id="安全性">安全性</h2>
+<p><strong>一旦状态机执行了一条日志里的命令，必须确保其它状态机在同样索引的位置不会执行不同的命令。</strong></p>
+<p>Raft 安全性(Safety)：如果某条日志记录在某个任期号已提交，那么这条记录必然出现在更大任期号的未来 Leader 的日志中。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/7RGYXVTCreaIt5U.jpg" alt="-w837"  />
+</p>
+<p>这保证了安全性要求：</p>
+<ul>
+<li>Leader 不会覆盖日志中的记录；</li>
+<li>只有 Leader 的日志中的记录才能被提交；</li>
+<li>在应用到状态机之前，日志必须先被提交；</li>
+</ul>
+<p>这决定我们要修改选举程序：</p>
+<ul>
+<li>如果节点的日志中没有正确的内容，需要避免其成为 Leader；</li>
+<li>稍微修改 committed 的定义（<em>即前面提到的要稍作修改</em>）：前面说多数派存储即是已提交的，但在某些时候，我们必须延迟提交日志记录，直到我们知道这条记录是安全的，<strong>所谓安全的，就是我们认为后续 Leader 也会有这条日志</strong>。</li>
+</ul>
+<h2 id="延迟提交选出最佳-leader">延迟提交，选出最佳 Leader</h2>
+<p>问题来了：我们如何确保选出了一个很好地保存了所有已提交日志的 Leader ？</p>
+<p>这有点棘手，举个例子：假设我们要在下面的集群中选出一个新 Leader，但此时第三台服务器不可用。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/FEtKwMzfrZXUOdv.jpg" alt="-w601"  />
+</p>
+<p>这种情况下，仅看前两个节点的日志我们无法确认是否达成多数派，故无法确认第五条日志是否已提交。</p>
+<p>那怎么办呢？</p>
+<p>通过比较日志，在选举期间，选择最有可能包含所有已提交的日志：</p>
+<ul>
+<li>Candidate 在 <code>RequestVote RPCs</code> 中包含日志信息（最后一条记录的 index 和 term，记为 <code>lastIndex</code> 和 <code>lastTerm</code>）；</li>
+<li>收到此投票请求的服务器 V 将比较谁的日志更完整：<code>(lastTermV &gt; lastTermC) || (lastTermV == lastTermC) &amp;&amp; (lastIndexV &gt; lastIndexC)</code> 将拒绝投票；（即：V 的任期比 C 的任期新，或任期相同但 V 的日志比 C 的日志更完整）；</li>
+<li>无论谁赢得选举，可以确保 Leader 和超过半数投票给它的节点中拥有最完整的日志——<strong>最完整的意思就是 index 和 term 这对唯一标识是最大的</strong>。</li>
+</ul>
+<h2 id="举个例子">举个例子</h2>
+<h3 id="case-1-leader-决定提交日志">Case 1: Leader 决定提交日志</h3>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/EFgfXRzo3NbLHB6.jpg" alt="-w589"  />
+</p>
+<p>任期 2 的 Leader S1 的 index = 4 日志刚刚被复制到 S3，并且 Leader 可以看到 index = 4 已复制到超过半数的服务器，那么该日志可以提交，并且安全地应用到状态机。</p>
+<p>现在，这条记录是安全的，下一任期的 Leader 必须包含此记录，因此 S4 和 S5 都不可能从其它节点那里获得选票：S5 任期太旧，S4 日志太短。</p>
+<p>只有前三台中的一台可以成为新的 Leader——S1 当然可以，S2、S3 也可以通过获取 S4 和 S5 的选票成为 Leader。</p>
+<h3 id="case-2-leader-试图提交之前任期的日志">Case 2: Leader 试图提交之前任期的日志</h3>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/WfnMTVqRNwH4g3A.jpg" alt="-w588"  />
+</p>
+<p>如图所示的情况，在任期 2 时记录仅写在 S1 和 S2 两个节点上，由于某种原因，任期 3 的 Leader S5 并不知道这些记录，S5 创建了自己的三条记录然后宕机了，然后任期 4 的 Leader S1 被选出，S1 试图与其它服务器的日志进行匹配。因此它复制了任期 2 的日志到 S3。</p>
+<p><strong>此时 index=3 的记录时是不安全的</strong>。</p>
+<p>因为 S1 可能在此时宕机，然后 S5 可能从 S2、S3、S4 获得选票成为任期 5 的 Leader。一旦 S5 成为新 Leader，它将覆盖 index=3-5 的日志，S1-S3 的这些记录都将消失。</p>
+<p>我们还要需要一条新的规则，来处理这种情况。</p>
+<h2 id="新的-commit-规则">新的 Commit 规则</h2>
+<p>新的选举不足以保证日志安全，我们还需要继续修改 commit 规则。</p>
+<p>Leader 要提交一条日志：</p>
+<ul>
+<li>日志必须存储在超过半数的节点上；</li>
+<li><strong>Leader 必须看到：超过半数的节点上还必须存储着至少一条自己任期内的日志</strong>；</li>
+</ul>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/fBWkG9E2YLQp5FN.jpg" alt="-w483"  />
+</p>
+<p>如图，回到上面的 Case 2: 当 index = 3 &amp; term = 2 被复制到 S3 时，它还不能提交该记录，必须等到 term = 4 的记录存储在超过半数的节点上，此时 index = 3 和 index = 4 可以认为是已提交。</p>
+<p>此时 S5 无法赢得选举了，它无法从 S1-S3 获得选票。</p>
+<p><strong>结合新的选举规则和 commit 规则，我们可以保证 Raft 的安全性。</strong></p>
+<h2 id="日志不一致">日志不一致</h2>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/g6HrkQfEzC7eNqd.jpg" alt="-w1024"  />
+</p>
+<p>Leader 变更可能导致日志的不一致，这里展示一种可能的情况。</p>
+<p>可以从图中看出，Raft 集群中通常有两种不一致的日志：</p>
+<ul>
+<li>缺失的记录(Missing Entries)；</li>
+<li>多出来的记录(Extraneous Entries)；</li>
+</ul>
+<p>我们要做的就是清理这两种日志。</p>
+<h2 id="修复-follower-日志">修复 Follower 日志</h2>
+<p>新的 Leader 必须使 Follower 的日志与自己的日志保持一致，通过：</p>
+<ul>
+<li>删除 Extraneous Entries；</li>
+<li>补齐 Missing Entries；</li>
+</ul>
+<p>Leader 为每个 Follower 保存 <code>nextIndex</code>：</p>
+<ul>
+<li>下一个要发送给 Follower 的日志索引；</li>
+<li>初始化为： 1 + Leader 最后一条日志的索引；</li>
+</ul>
+<p>Leader 通过 <code>nextIndex</code> 来修复日志。当 <code>AppendEntries RPC</code> 一致性检查失败，递减 <code>nextIndex</code> 并重试。如下图所示：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/3unHSXWaOFBsUJP.jpg" alt="-w785"  />
+</p>
+<p>对于 a：</p>
+<ul>
+<li>一开始 <code>nextIndex</code> = 11，带上日志 index = 10 &amp; term = 6，检查失败；</li>
+<li><code>nextIndex</code> = 10，带上日志 index = 9 &amp; term = 6，检查失败；</li>
+<li>如此反复，直到 <code>nextIndex</code> = 5，带上日志 index = 4 &amp; term = 4，该日志现在匹配，会在 a 中补齐 Leader 的日志。如此往下补齐。</li>
+</ul>
+<p>对于 b：
+会一直检查到 <code>nextIndex</code> = 4 才匹配。值得注意的是，对于 b 这种情况，当 Follower 覆盖不一致的日志时，它将删除所有后续的日志记录（任何无关紧要的记录之后的记录也都是无关紧要的）。如下图所示：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/k4IqB7JaUOndzxA.jpg" alt="-w753"  />
+</p>
+<h1 id="4-处理旧-leader">4. 处理旧 Leader</h1>
+<p>实际上，老的 Leader 可能不会马上消失，例如：网络分区将 Leader 与集群的其余部分分隔，其余部分选举出了一个新的 Leader。问题在于，如果老的 Leader 重新连接，也不知道新的 Leader 已经被选出来，它会尝试作为 Leader 继续提交日志。此时如果有客户端向老 Leader 发送请求，老的 Leader 会尝试存储该命令并向其它节点复制日志——我们必须阻止这种情况发生。</p>
+<p><strong>任期就是用来发现过时的 Leader</strong>(和 Candidates)：</p>
+<ul>
+<li>每个 RPC 都包含发送方的任期；</li>
+<li>如果发送方的任期太老，无论哪个过程，RPC 都会被拒绝，发送方转变到 Follower 并更新其任期；</li>
+<li>如果接收方的任期太老，接收方将转为 Follower，更新它的任期，然后正常的处理 RPC；</li>
+</ul>
+<p>由于新 Leader 的选举会更新超过半数服务器的任期，旧的 Leader 不能提交新的日志，因为它会联系至少一台多数派集群的节点，然后发现自己任期太老，会转为 Follower 继续工作。</p>
+<p>这里不打算继续讨论别的极端情况。</p>
+<h1 id="5-客户端协议">5. 客户端协议</h1>
+<p>客户端只将命令发送到 Leader：</p>
+<ul>
+<li>如果客户端不知道 Leader 是谁，它会和任意一台服务器通信；</li>
+<li>如果通信的节点不是 Leader，它会告诉客户端 Leader 是谁；</li>
+</ul>
+<p>Leader 直到将命令记录、提交和执行到状态机之前，不会做出响应。</p>
+<p>这里的问题是如果 Leader 宕机会导致请求超时：</p>
+<ul>
+<li>客户端重新发出命令到其他服务器上，最终重定向到新的 Leader</li>
+<li>用新的 Leader 重试请求，直到命令被执行</li>
+</ul>
+<p>这留下了一个命令可能被执行两次的风险——Leader 可能在执行命令之后但响应客户端之前宕机，此时客户端再去寻找下一个 Leader，同一个命令就会被执行两次——这是不可接受的！</p>
+<p>解决办法是：客户端发送给 Leader 的每个命令都带上一个唯一 id</p>
+<ul>
+<li>Leader 将唯一 id 写到日志记录中</li>
+<li>在 Leader 接受命令之前，先检查其日志中是否已经具有该 id</li>
+<li>如果 id 在日志中，说明是重复的请求，则忽略新的命令，返回旧命令的响应</li>
+</ul>
+<p><strong>每个命令只会被执行一次，这就是所谓的线性化的关键要素</strong>。</p>
+<h1 id="6-配置变更">6. 配置变更</h1>
+<p>随着时间推移，会有机器故障需要我们去替换它，或者修改节点数量，需要有一些机制来变更系统配置，并且是安全、自动的方式，无需停止系统。</p>
+<p>系统配置是指：</p>
+<ul>
+<li>每台服务器的 id 和地址</li>
+<li><strong>系统配置信息是非常重要的，它决定了多数派的组成</strong></li>
+</ul>
+<p>首先要意识到，我们不能直接从旧配置切换到新配置，这可能会导致矛盾的多数派。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/JseC43wyEI6jzDA.jpg" alt="-w977"  />
+</p>
+<p>如图，系统以三台服务器的配置运行着，此时我们要添加两台服务器。如果我们直接修改配置，他们可能无法完全在同一时间做到配置切换，这会导致 S1 和 S2 形成旧集群的多数派，而同一时间 S3-S5 已经切换到新配置，这会产生两个集群。</p>
+<p>这说明我们必须使用一个两阶段(two-phase)协议。</p>
+<blockquote>
+<p>如果有人告诉你，他可以在分布式系统中一个阶段就做出决策，你应该非常认真地询问他，因为他要么错了，要么发现了世界上所有人都不知道的东西。</p>
+</blockquote>
+<h2 id="共同一致joint-consensus">共同一致(Joint Consensus)</h2>
+<p>Raft 通过共同一致(Joint Consensus)来完成两阶段协议，即：新、旧两种配置上都获得多数派选票。</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/uiwta7xnJymeDHT.jpg" alt="-w842"  />
+</p>
+<p>第一阶段：</p>
+<ul>
+<li>Leader 收到 $C_{new}$ 的配置变更请求后，先写入一条 $C_{old+new}$ 的日志，配置变更立即生效，然后将日志通过 <code>AppendEntries RPC</code> 复制到 Follower 中，收到该  $C_{old+new}$ 的节点立即应用该配置作为当前节点的配置；</li>
+<li>$C_{old+new}$ 日志复制到多数派节点上时，$C_{old+new}$ 的日志已提交；</li>
+</ul>
+<p>$C_{old+new}$ 日志已提交保证了后续任何 Leader 一定有 $C_{old+new}$ 日志，Leader 选举过程必须获得旧配置中的多数派和新配置中的多数派同时投票。</p>
+<p>第二阶段：</p>
+<ul>
+<li>$C_{old+new}$ 日志已提交后，立即写入一条 $C_{new}$ 的日志，并将该日志通过 <code>AppendEntries RPC</code> 复制到 Follower 中，收到 $C_{new}$ 的节点立即应用该配置作为当前节点的配置；</li>
+<li>$C_{new}$ 日志复制到多数派节点上时，$C_{new}$ 的日志已提交；在 $C_{new}$ 日志提交以后，后续的配置都基于 $C_{new}$ 了；</li>
+</ul>
+<p><img loading="lazy" src="https://i.loli.net/2021/02/03/6cXKlrEdxshvB3F.jpg" alt="-w907"  />
+</p>
+<p>Joint Consensus 还有一些细节：</p>
+<ul>
+<li>变更过程中，来自新旧配置的节点都有可能成为 Leader；</li>
+<li>如果当前 Leader 不在 $C_{new}$ 配置里面，一旦 $C_{new}$ 提交，它必须下台(step down)。</li>
+</ul>
+<p>如图所示，旧 Leader 不再是新配置的成员之后，还有可能继续服务一小段时间；即旧 Leader 可能在 $C_{new}$ 配置下继续当 Leader（虽然实质上并不是Leader），直到 $C_{new}$ 的日志复制到多数派上而 committed；</p>
+<h1 id="相关阅读">相关阅读</h1>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzIwODA2NjIxOA==&amp;mid=2247483932&amp;idx=1&amp;sn=895af82bf5939d9be5e862f73f74acbd&amp;chksm=970981d9a07e08cf4c4121543aa6e2420a6a7c7c40f116bf89b534b6f2a54a46b2402522e2a5&amp;scene=21#wechat_redirect">Raft 作者亲自出的 Raft 试题，你能做对几道？</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzIwODA2NjIxOA==&amp;mid=2247484009&amp;idx=1&amp;sn=ec4f6ad749895230121622ed63de0051&amp;chksm=970981aca07e08ba9e9c3e356694bbc0f0e83e2296d90d1307f0edb5137dd9079c9cba7b63dd&amp;scene=21#wechat_redirect">Golang 实现 Paxos 分布式共识算法</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzIwODA2NjIxOA==&amp;mid=2247483855&amp;idx=1&amp;sn=55a9c2c1eb28310e678c35df91d33818&amp;chksm=9709820aa07e0b1c2c82f94bbbd530d6a60fdd78b3a3171b93aff3e755b8f501dc7f243e78ac&amp;scene=21#wechat_redirect">漫谈分布式共识问题</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzIwODA2NjIxOA==&amp;mid=2247483889&amp;idx=1&amp;sn=45f929ef634ee55cbec235dee9c347a5&amp;chksm=97098234a07e0b226c9aa2d3a8c4e2eded8795be0b6c68f299ac8ba1546a626052e33efa295f&amp;scene=21#wechat_redirect">理解 Paxos（含伪代码）</a></p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -32,7 +519,257 @@
       <pubDate>Sun, 13 Dec 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/impl-basic-paxos/</guid>
-      <description>前文《理解 Paxos》只包含伪代码，帮助了理解但又不够爽，既然现在都讲究 Talk is cheap. Show me the code. 这次就把文章中的伪代码用 Go 语言实现出来，希望能帮助各位</description>
+      <description>前文《理解 Paxos》只包含伪代码，帮助了理解但又不够爽，既然现在都讲究 Talk is cheap. Show me the code. 这次就把文章中的伪代码用 Go 语言实现出来，希望能帮助各位朋友更直观的感受 Paxos 论文中的细节。
+但我们需要对算法做一些简化，有多简单呢？我们不持久化存储任何变量，并且用 chan 直接代替 RPC 调用。
+代码地址：https://github.com/tangwz/paxos/tree/naive
+记得切换到 naive 分支。
+定义相关结构体 我们定义 Proposer 如下：
+type proposer struct { // server id 	id int // the largest round number the server has seen 	round int // proposal number = (round number, serverID) 	number int // proposal value 	value string acceptors map[int]bool net network } 这些结构体成员都很容易理解，其中 acceptors 我们主要用来存储 Acceptors 的地址，以及记录我们收到 Acceptor 的成功/失败响应。</description>
+      <content:encoded><![CDATA[<p>前文<a href="https://mp.weixin.qq.com/s/lbauCATMesqTEeIQuCsz9A">《理解 Paxos》</a>只包含伪代码，帮助了理解但又不够爽，既然现在都讲究 <strong>Talk is cheap. Show me the code.</strong> 这次就把文章中的伪代码用 Go 语言实现出来，希望能帮助各位朋友更直观的感受 Paxos 论文中的细节。</p>
+<p>但我们需要对算法做一些简化，有多简单呢？<strong>我们不持久化存储任何变量，并且用 <code>chan</code> 直接代替 RPC 调用。</strong></p>
+<p>代码地址：<a href="https://github.com/tangwz/paxos/tree/naive">https://github.com/tangwz/paxos/tree/naive</a></p>
+<p><strong>记得切换到 naive 分支。</strong></p>
+<h2 id="定义相关结构体">定义相关结构体</h2>
+<p>我们定义 Proposer 如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">proposer</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#75715e">// server id
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">id</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// the largest round number the server has seen
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">round</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// proposal number = (round number, serverID)
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">number</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// proposal value
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">value</span>     <span style="color:#66d9ef">string</span>
+	<span style="color:#a6e22e">acceptors</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">int</span>]<span style="color:#66d9ef">bool</span>
+	<span style="color:#a6e22e">net</span>       <span style="color:#a6e22e">network</span>
+}
+</code></pre></div><p>这些结构体成员都很容易理解，其中 <code>acceptors</code> 我们主要用来存储 Acceptors 的地址，以及记录我们收到 Acceptor 的成功/失败响应。</p>
+<p>Acceptor 的结构体：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">acceptor</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#75715e">// server id
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">id</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// the number of the proposal this server will accept, or 0 if it has never received a Prepare request
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">promiseNumber</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// the number of the last proposal the server has accepted, or 0 if it never accepted any.
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">acceptedNumber</span> <span style="color:#66d9ef">int</span>
+	<span style="color:#75715e">// the value from the most recent proposal the server has accepted, or null if it has never accepted a proposal
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">acceptedValue</span> <span style="color:#66d9ef">string</span>
+
+	<span style="color:#a6e22e">learners</span> []<span style="color:#66d9ef">int</span>
+	<span style="color:#a6e22e">net</span>      <span style="color:#a6e22e">network</span>
+}
+</code></pre></div><p>主要成员解释都有注释，简单来说我们需要记录三个信息：</p>
+<ul>
+<li><code>promiseNumber</code>： 承诺的提案编号</li>
+<li><code>acceptedNumber</code>： 接受的提案编号</li>
+<li><code>acceptedValue</code>： 接受的提案值</li>
+</ul>
+<h2 id="定义消息结构体">定义消息结构体</h2>
+<p>消息结构体定义了 Proposer 和 Acceptor 之间、Acceptor 和 Leaner 之间的通讯协议。最主要的还是 Paxos 的两阶段的四个消息。</p>
+<ul>
+<li>Phase 1 请求：<strong>提案编号</strong></li>
+<li>Phase 1 响应：如果有被 Accepted 的提案，返回<strong>提案编号</strong>和<strong>提案值</strong></li>
+<li>Phase 2 请求：<strong>提案编号</strong>和<strong>提案值</strong></li>
+<li>Phase 2 响应：Accepted 的<strong>提案编号</strong>和<strong>提案值</strong></li>
+</ul>
+<p>这样看，我们的消息结构体只需要提案编号和提案值，加上一个消息类型，用来区分是哪个阶段的消息。消息结构体定义在 message.go 文件，具体如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#75715e">// MsgType represents the type of a paxos phase.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">MsgType</span> <span style="color:#66d9ef">uint8</span>
+
+<span style="color:#66d9ef">const</span> (
+	<span style="color:#a6e22e">Prepare</span> <span style="color:#a6e22e">MsgType</span> = <span style="color:#66d9ef">iota</span>
+	<span style="color:#a6e22e">Promise</span>
+	<span style="color:#a6e22e">Propose</span>
+	<span style="color:#a6e22e">Accept</span>
+)
+
+<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">message</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#a6e22e">tp</span>     <span style="color:#a6e22e">MsgType</span>
+	<span style="color:#a6e22e">from</span>   <span style="color:#66d9ef">int</span>
+	<span style="color:#a6e22e">to</span>     <span style="color:#66d9ef">int</span>
+	<span style="color:#a6e22e">number</span> <span style="color:#66d9ef">int</span>    <span style="color:#75715e">// proposal number
+</span><span style="color:#75715e"></span>	<span style="color:#a6e22e">value</span>  <span style="color:#66d9ef">string</span> <span style="color:#75715e">// proposal value
+</span><span style="color:#75715e"></span>}
+</code></pre></div><h2 id="实现网络">实现网络</h2>
+<p>网络上可以做的选择和优化很多，但这里为了保持简单的原则，我们将网络定义成 <code>interface</code>。后面完全可以改成 RPC 或 API 等其它通信方式来实现（没错，我已经实现了一个 Go RPC 的版本了）。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">network</span> <span style="color:#66d9ef">interface</span> {
+	<span style="color:#a6e22e">send</span>(<span style="color:#a6e22e">m</span> <span style="color:#a6e22e">message</span>)
+	<span style="color:#a6e22e">recv</span>(<span style="color:#a6e22e">timeout</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>) (<span style="color:#a6e22e">message</span>, <span style="color:#66d9ef">bool</span>)
+}
+</code></pre></div><p>接下里我们去实现 network 接口：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">Network</span> <span style="color:#66d9ef">struct</span> {
+	<span style="color:#a6e22e">queue</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">int</span>]<span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">message</span>
+}
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">newNetwork</span>(<span style="color:#a6e22e">nodes</span> <span style="color:#f92672">...</span><span style="color:#66d9ef">int</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">Network</span> {
+	<span style="color:#a6e22e">pn</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">Network</span>{
+		<span style="color:#a6e22e">queue</span>: make(<span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">int</span>]<span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">message</span>, <span style="color:#ae81ff">0</span>),
+	}
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">a</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">nodes</span> {
+		<span style="color:#a6e22e">pn</span>.<span style="color:#a6e22e">queue</span>[<span style="color:#a6e22e">a</span>] = make(<span style="color:#66d9ef">chan</span> <span style="color:#a6e22e">message</span>, <span style="color:#ae81ff">1024</span>)
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">pn</span>
+}
+
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">net</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Network</span>) <span style="color:#a6e22e">send</span>(<span style="color:#a6e22e">m</span> <span style="color:#a6e22e">message</span>) {
+	<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;net: send %+v&#34;</span>, <span style="color:#a6e22e">m</span>)
+	<span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">queue</span>[<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">to</span>] <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">m</span>
+}
+
+<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">net</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">Network</span>) <span style="color:#a6e22e">recvFrom</span>(<span style="color:#a6e22e">from</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">timeout</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>) (<span style="color:#a6e22e">message</span>, <span style="color:#66d9ef">bool</span>) {
+	<span style="color:#66d9ef">select</span> {
+	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">m</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">net</span>.<span style="color:#a6e22e">queue</span>[<span style="color:#a6e22e">from</span>]:
+		<span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;net: recv %+v&#34;</span>, <span style="color:#a6e22e">m</span>)
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">m</span>, <span style="color:#66d9ef">true</span>
+	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">After</span>(<span style="color:#a6e22e">timeout</span>):
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">message</span>{}, <span style="color:#66d9ef">false</span>
+	}
+}
+</code></pre></div><p>就是用 <code>queue</code> 来记录每个节点的 <code>chan</code>，key 则是节点的 server id。</p>
+<p>发送消息则将 <code>Message</code> 发送到目标节点的 <code>chan</code> 中，接受消息直接从 <code>chan</code> 中读取数据，并等待对应的超时时间。</p>
+<p>不需要做其它网络地址、包相关的东西，所以非常简单。具体在 <code>network.go</code> 文件。</p>
+<h2 id="实现单元测试">实现单元测试</h2>
+<p>这个项目主要使用 go 单元测试来检验正确性，我们主要测试两种场景：</p>
+<ul>
+<li>TestSingleProposer（单个 Proposer）</li>
+<li>TestTwoProposers（多个 Proposer）</li>
+</ul>
+<p>测试代码通过运行 Paxos 后检查 Chosen 返回的提案值是否符合预期。</p>
+<h2 id="实现算法流程">实现算法流程</h2>
+<p>按照角色将文件分为 proposer.go, acceptor.go 和 learner.go，每个文件都有一个 <code>run()</code> 函数来运行程序，<code>run()</code> 函数执行条件判断，并在对应的阶段执行对应的函数。</p>
+<p>按照伪代码描述，我们很容易实现 Phase 1 和 Phase 2，把每个阶段的请求响应都作为一个函数，我们一步步来看。</p>
+<h3 id="第一轮-prepare-rpcs-请求阶段">第一轮 Prepare RPCs 请求阶段：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#75715e">// Phase 1. (a) A proposer selects a proposal number n
+</span><span style="color:#75715e">// and sends a prepare request with number n to a majority of acceptors.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proposer</span>) <span style="color:#a6e22e">prepare</span>() []<span style="color:#a6e22e">message</span> {
+	<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">round</span><span style="color:#f92672">++</span>
+	<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">number</span> = <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">proposalNumber</span>()
+	<span style="color:#a6e22e">msg</span> <span style="color:#f92672">:=</span> make([]<span style="color:#a6e22e">message</span>, <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">majority</span>())
+	<span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">to</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">acceptors</span> {
+		<span style="color:#a6e22e">msg</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#a6e22e">message</span>{
+			<span style="color:#a6e22e">tp</span>:     <span style="color:#a6e22e">Prepare</span>,
+			<span style="color:#a6e22e">from</span>:   <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">id</span>,
+			<span style="color:#a6e22e">to</span>:     <span style="color:#a6e22e">to</span>,
+			<span style="color:#a6e22e">number</span>: <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">number</span>,
+		}
+		<span style="color:#a6e22e">i</span><span style="color:#f92672">++</span>
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">majority</span>() {
+			<span style="color:#66d9ef">break</span>
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">msg</span>
+}
+
+<span style="color:#75715e">// proposal number = (round number, serverID)
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proposer</span>) <span style="color:#a6e22e">proposalNumber</span>() <span style="color:#66d9ef">int</span> {
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">round</span><span style="color:#f92672">&lt;&lt;</span> <span style="color:#ae81ff">16</span> | <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">id</span>
+}
+</code></pre></div><p>Prepare 请求阶段我们将 round+1 然后发送给多数派 Acceptors。</p>
+<blockquote>
+<p>注：这里很多博客和教程都会将 Prepare RPC 发给<strong>所有的</strong> Acceptors，6.824 的 paxos 实验就将 RPC 发送给所有 Acceptors。这里保持和论文一致，只发送给 a majority of acceptors。</p>
+</blockquote>
+<h3 id="第一轮-prepare-rpcs-响应阶段">第一轮 Prepare RPCs 响应阶段：</h3>
+<p>接下来在 <code>acceptor.go</code> 文件中处理请求：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">a</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">acceptor</span>) <span style="color:#a6e22e">handlePrepare</span>(<span style="color:#a6e22e">args</span> <span style="color:#a6e22e">message</span>) (<span style="color:#a6e22e">message</span>, <span style="color:#66d9ef">bool</span>) {
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">promiseNumber</span> <span style="color:#f92672">&gt;=</span> <span style="color:#a6e22e">args</span>.<span style="color:#a6e22e">number</span> {
+		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">message</span>{}, <span style="color:#66d9ef">false</span>
+	}
+	<span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">promiseNumber</span> = <span style="color:#a6e22e">args</span>.<span style="color:#a6e22e">number</span>
+	<span style="color:#a6e22e">msg</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">message</span>{
+		<span style="color:#a6e22e">tp</span>:     <span style="color:#a6e22e">Promise</span>,
+		<span style="color:#a6e22e">from</span>:   <span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">id</span>,
+		<span style="color:#a6e22e">to</span>:     <span style="color:#a6e22e">args</span>.<span style="color:#a6e22e">from</span>,
+		<span style="color:#a6e22e">number</span>: <span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">acceptedNumber</span>,
+		<span style="color:#a6e22e">value</span>:  <span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">acceptedValue</span>,
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">msg</span>, <span style="color:#66d9ef">true</span>
+}
+</code></pre></div><ul>
+<li>如果 <code>args.number</code> 大于 <code>acceptor.promiseNumber</code>，则承诺将不会接收编号小于 <code>args.number</code> 的提案（即 <code>a.promiseNumber = args.number</code>）。如果之前有提案被 Accepted 的话，响应还应包含 a.acceptedNumber 和 a.acceptedValue。</li>
+<li>否则忽略，返回 <code>false</code>。</li>
+</ul>
+<h3 id="第二轮-accept-rpcs-请求阶段">第二轮 Accept RPCs 请求阶段：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">p</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">proposer</span>) <span style="color:#a6e22e">accept</span>() []<span style="color:#a6e22e">message</span> {
+	<span style="color:#a6e22e">msg</span> <span style="color:#f92672">:=</span> make([]<span style="color:#a6e22e">message</span>, <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">majority</span>())
+	<span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">to</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">acceptors</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ok</span> {
+			<span style="color:#a6e22e">msg</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#a6e22e">message</span>{
+				<span style="color:#a6e22e">tp</span>:     <span style="color:#a6e22e">Propose</span>,
+				<span style="color:#a6e22e">from</span>:   <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">id</span>,
+				<span style="color:#a6e22e">to</span>:     <span style="color:#a6e22e">to</span>,
+				<span style="color:#a6e22e">number</span>: <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">number</span>,
+				<span style="color:#a6e22e">value</span>:  <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">value</span>,
+			}
+			<span style="color:#a6e22e">i</span><span style="color:#f92672">++</span>
+		}
+
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">majority</span>() {
+			<span style="color:#66d9ef">break</span>
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">msg</span>
+}
+</code></pre></div><p>当 Proposer 收到超过半数 Acceptor 的响应后，Proposer 向多数派的 Acceptor 发起请求并带上提案编号和提案值。</p>
+<h3 id="第二轮-accept-rpcs-响应阶段">第二轮 Accept RPCs 响应阶段：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">a</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">acceptor</span>) <span style="color:#a6e22e">handleAccept</span>(<span style="color:#a6e22e">args</span> <span style="color:#a6e22e">message</span>) <span style="color:#66d9ef">bool</span> {
+	<span style="color:#a6e22e">number</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">args</span>.<span style="color:#a6e22e">number</span>
+	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">number</span> <span style="color:#f92672">&gt;=</span> <span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">promiseNumber</span> {
+		<span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">acceptedNumber</span> = <span style="color:#a6e22e">number</span>
+		<span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">acceptedValue</span> = <span style="color:#a6e22e">args</span>.<span style="color:#a6e22e">value</span>
+		<span style="color:#a6e22e">a</span>.<span style="color:#a6e22e">promiseNumber</span> = <span style="color:#a6e22e">number</span>
+		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+	}
+
+	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span>
+}
+</code></pre></div><p>Acceptor 收到 <code>Accept()</code> 请求，在这期间如果 Acceptor 没有对比 a.promiseNumber 更大的编号另行 Promise，则接受该提案。</p>
+<h3 id="别忘了learning-a-chosen-value">别忘了：Learning a Chosen Value</h3>
+<p>在 Paxos 中有一个十分容易混淆的概念：Chosen Value 和 Accepted Value，但如果你看过论文，其实已经说得非常直接了。论文的 2.3 节 Learning a Chosen Value 开头就说：</p>
+<blockquote>
+<p>To learn that a value has been chosen, a learner must find out that a proposal has been accepted by a majority of acceptors.</p>
+</blockquote>
+<p>所以 Acceptor 接受提案后，会将接受的提案广播 Leaners，一旦 Leaners 收到超过半数的 Acceptors 的 Accepted 提案，我们就知道这个提案被 Chosen 了。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Go" data-lang="Go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">l</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">learner</span>) <span style="color:#a6e22e">chosen</span>() (<span style="color:#a6e22e">message</span>, <span style="color:#66d9ef">bool</span>) {
+	<span style="color:#a6e22e">acceptCounts</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">int</span>]<span style="color:#66d9ef">int</span>)
+	<span style="color:#a6e22e">acceptMsg</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">int</span>]<span style="color:#a6e22e">message</span>)
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">accepted</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">acceptors</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">accepted</span>.<span style="color:#a6e22e">number</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+			<span style="color:#a6e22e">acceptCounts</span>[<span style="color:#a6e22e">accepted</span>.<span style="color:#a6e22e">number</span>]<span style="color:#f92672">++</span>
+			<span style="color:#a6e22e">acceptMsg</span>[<span style="color:#a6e22e">accepted</span>.<span style="color:#a6e22e">number</span>] = <span style="color:#a6e22e">accepted</span>
+		}
+	}
+
+	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">count</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">acceptCounts</span> {
+		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">count</span> <span style="color:#f92672">&gt;=</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">majority</span>() {
+			<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">acceptMsg</span>[<span style="color:#a6e22e">n</span>], <span style="color:#66d9ef">true</span>
+		}
+	}
+	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">message</span>{}, <span style="color:#66d9ef">false</span>
+}
+</code></pre></div><h2 id="运行和测试">运行和测试</h2>
+<p>代码拉下来后，直接运行：</p>
+<pre tabindex="0"><code>go test
+</code></pre><h2 id="写在后面">写在后面</h2>
+<h3 id="为什么不用-mit-6824-的课程代码">为什么不用 mit 6.824 的课程代码？</h3>
+<p>之前我曾把 mit 6.824 的 Raft 答案推到自己的 Github，直到 2020 开课的时候 mit 的助教发邮件让我将我的代码转为 private，因为这样会导致学习课程的人直接搜到代码，而无法保证作业独立完成。</p>
+<p>确实，实验是计算机最不可或缺的环节，用 mit 6.824 2015 的 paxos 代码会导致很多学习者不去自己解决困难，直接上网搜代码，从而导致学习效果不好，违背了 mit 的初衷。</p>
+<p>当然，你也可以说现在网上以及很容易搜到 6.824 的各种代码了，但出于之前 mit 助教的邮件，我不会将作业代码直接发出来。</p>
+<p>感兴趣的同学可以到 2015 版本学习：http://nil.csail.mit.edu/6.824/2015/</p>
+<h3 id="未来计划">未来计划</h3>
+<ul>
+<li>实现一个完整的（包含网络和存储的） Paxos</li>
+<li>基于 Paxos 实现一个 Paxos KV 存储</li>
+<li>实现其它 Paxos 变种</li>
+</ul>
+<p>欢迎各位朋友催更……</p>
+<h2 id="结语">结语</h2>
+<p>本文代码在 Github 上，如本文有什么遗漏或者不对之处，或者各位朋友有什么新的想法，欢迎提 issue 讨论。</p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -41,7 +778,141 @@
       <pubDate>Sun, 15 Nov 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/understanding-multi-paxos/</guid>
-      <description>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。 这里描述的 Multi-Paxos 尚未经</description>
+      <description>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “The Part-Time Parliament.” 中给出的算法。
+这里描述的 Multi-Paxos 尚未经过实践证明其正确性。
+众所周知 Raft 是更易理解的，所以我参照 Raft 的风格，将 Paxos 转换成了下图。
+1. 基础  提案编号 n = (round number, server ID) T： 固定的超时时间，用于选举算法 α：并发限制，用于配置变更  1.1 Leader 选举算法  每个节点每隔 T（ms） 向其它服务器发送心跳 如果一个节点在 2（Tms） 时间内没有收到比自己 server ID 更大的心跳，那它自己就转为 Leader  2. 持久化 2.1 Acceptor 上的持久化状态  lastLogIndex：已经接受的最大的日志index minProposal：已经接收提案中的最小提案编号，如果还未收到 Prepare 请求，则为 0  每个 Acceptor 上还会存储一个日志，日志索引 i ∈ [1, lastLogIndex]，每条日志记录包含以下内容：
+ acceptedProposal[i]：第 i 条日志最后接受的提案编号。初始化时为 0；如果提案被 chosen，则 acceptedProposal[i] = 无穷大 acceptedValue[i]：第 i 条日志最后接受的 value，初始化时为 null firstUnchosenIndex：i &amp;gt; 0 且 acceptedProposal[i] &amp;lt; ∞ 的最小日志 index  2.</description>
+      <content:encoded><![CDATA[<p>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，保持接近 Leslie Lamport 在 “<a href="https://lamport.azurewebsites.net/pubs/lamport-paxos.pdf">The Part-Time Parliament.</a>” 中给出的算法。</p>
+<p><strong>这里描述的 Multi-Paxos 尚未经过实践证明其正确性</strong>。</p>
+<p><strong>众所周知 Raft 是更易理解的，所以我参照 Raft 的风格，将 Paxos 转换成了下图。</strong></p>
+<p><img loading="lazy" src="/media/images/20201115-understanding-multi-paxos/raft-style-multi-paxos.png" alt=""  />
+</p>
+<h1 id="1-基础">1. 基础</h1>
+<ul>
+<li>提案编号 <em>n</em> = (round number, server ID)</li>
+<li><em>T</em>： 固定的超时时间，用于选举算法</li>
+<li><em>α</em>：并发限制，用于配置变更</li>
+</ul>
+<h2 id="11-leader-选举算法">1.1 Leader 选举算法</h2>
+<ul>
+<li>每个节点每隔 T（ms） 向其它服务器发送心跳</li>
+<li>如果一个节点在 2（Tms） 时间内没有收到比自己 server ID 更大的心跳，那它自己就转为 Leader</li>
+</ul>
+<h1 id="2-持久化">2. 持久化</h1>
+<h2 id="21-acceptor-上的持久化状态">2.1 Acceptor 上的持久化状态</h2>
+<ul>
+<li><em>lastLogIndex</em>：已经接受的最大的日志index</li>
+<li><em>minProposal</em>：已经接收提案中的最小提案编号，如果还未收到 Prepare 请求，则为 0</li>
+</ul>
+<p>每个 Acceptor 上还会存储一个日志，日志索引 i ∈ [1, lastLogIndex]，每条日志记录包含以下内容：</p>
+<ul>
+<li><em>acceptedProposal[i]</em>：第 i 条日志最后接受的提案编号。初始化时为 0；如果提案被 chosen，则 acceptedProposal[i] = 无穷大</li>
+<li><em>acceptedValue[i]</em>：第 i 条日志最后接受的 value，初始化时为 <code>null</code></li>
+<li><em>firstUnchosenIndex</em>：i &gt; 0 且 acceptedProposal[i] &lt; ∞ 的最小日志 index</li>
+</ul>
+<h2 id="22-proposer-上的持久化状态">2.2 Proposer 上的持久化状态</h2>
+<ul>
+<li><em>maxRound</em>：Proposer 已知的最大 round number</li>
+</ul>
+<h2 id="23-proposer-上的易失性状态">2.3 Proposer 上的易失性状态</h2>
+<ul>
+<li><em>nextIndex</em>：客户端请求要写的下一个日志 index</li>
+<li><em>prepared</em>：如果 prepared 为 True，那么 Proposer 不再需要发起 Prepare 请求（超过半数的 Acceptor 回复了 <code>noMoreAccepted</code>）；初始化为 False</li>
+</ul>
+<h1 id="3-流程">3 流程</h1>
+<h2 id="31-prepare阶段-1">3.1 Prepare（阶段 1）</h2>
+<h2 id="请求">请求：</h2>
+<ul>
+<li><em>n</em>：提案编号</li>
+<li><em>index</em>：Proposer 的提案对应的日志 index</li>
+</ul>
+<h3 id="接受者处理">接受者处理：</h3>
+<p>收到 Prepare 请求后，如果 <code>request.n &gt;= minProposal</code>，则 Acceptor 设置 <code>minProposal = request. proposalId</code>；同时承诺拒绝所有提案编号 &lt; request.n 的 Accept 请求。</p>
+<h3 id="响应">响应：</h3>
+<ul>
+<li><em>acceptedProposal：Acceptor</em> 的 <code>acceptedProposal[index]</code></li>
+<li><em>acceptedValue</em>：Acceptor 的 <code>acceptedValue[index]</code></li>
+<li><em>noMoreAccepted</em>：Acceptor 遍历 &gt;= index 的日志记录，如果之后没有接受过任何值（都是空的记录），那么 noMoreAccepted = True；否则设为 False</li>
+</ul>
+<h2 id="32-accept阶段-2">3.2 Accept（阶段 2）</h2>
+<h3 id="请求-1">请求：</h3>
+<ul>
+<li><em>n</em>：和 Prepare 阶段一样的提案编号</li>
+<li><em>index</em>：日志 index</li>
+<li><em>v</em>：提案的值，如果 Prepare 阶段收到一个更大的提案编号，那么就是该最大的提案的值，否则 Proposer 使用来自 Client 的值</li>
+<li><em>firstUnchosenIndex</em>：节点日志上第一个没有被 chosen 的日志 index</li>
+</ul>
+<h3 id="接受者处理-1">接受者处理：</h3>
+<p>收到 Accept 请求后，如果 <code>n &gt;= minProposal,</code> 则：</p>
+<ul>
+<li><code>acceptedProposal[index] = n</code></li>
+<li><code>acceptedValue[index] = v</code></li>
+<li>minProposal = n
+对于每个 <code> index &lt; request.firstUnchosenIndex</code>，如果 <code>acceptedProposal[index] = n</code>，则 <code>acceptedProposal[index] = ∞</code></li>
+</ul>
+<p><img loading="lazy" src="/media/images/20201115-understanding-multi-paxos/accept.png" alt=""  />
+</p>
+<h3 id="响应-1">响应：</h3>
+<ul>
+<li><em>n</em>：Acceptor 的 minProposal 值</li>
+<li><em>firstUnchosenIndex</em>：Acceptor 的 firstUnchosenIndex 值</li>
+</ul>
+<h2 id="33-success阶段-3">3.3 Success（阶段 3）</h2>
+<h3 id="请求-2">请求：</h3>
+<ul>
+<li><em>index</em>：日志的索引</li>
+<li><em>v</em>：log[index] 已 chosen 的提案值</li>
+</ul>
+<h3 id="接受者处理-2">接受者处理：</h3>
+<p>Acceptor 收到 Success RPC 后，更新已经被 chosen 的日志记录：</p>
+<ul>
+<li>acceptedValue[index] = v</li>
+<li>acceptedProposal[index] = 无穷大</li>
+</ul>
+<h3 id="响应-2">响应：</h3>
+<ul>
+<li><em>firstUnchosenIndex</em>：Acceptor 的 firstUnchosenIndex 值</li>
+</ul>
+<p>当发送者收到响应后，如果 <code>reply.firstUnchosenIndex &lt; firstUnchosenIndex</code>，则发送者再发生请求：<code> Success(index = reply.firstUnchosenIndex, value = acceptedValue[reply.firstUnchosenIndex])</code></p>
+<h2 id="34-proposer-算法writeinputvalue--bool">3.4 Proposer 算法：<code>write(inputValue) → bool</code></h2>
+<ol>
+<li>如果不是 Leader，或者 Leader 还没有初始化完成，直接返回 False</li>
+<li>如果 prepared == True：
+<ul>
+<li>index = nextIndex, nextIndex++</li>
+<li>goto 7</li>
+</ul>
+</li>
+<li>index = firstUnchosenIndex，nextIndex = index + 1</li>
+<li>生成一个新的提案编号 n（maxRound++，并持久化保存）</li>
+<li>广播 <code>Prepare(n, index)</code> 给所有 Acceptor</li>
+<li>一旦收到超过半数 Acceptor 的 Prepare 响应（<code>reply.acceptedProposal,reply.acceptedValue,reply.noMoreAccepted</code>）：
+<ul>
+<li>如果所有响应中最大的 <code>reply.acceptedProposal</code> 不等于 0，那么使用它的 <code>reply.acceptedValue</code>，否则使用自己的 <code>inputValue</code></li>
+<li>如果超过半数的 Acceptor 回复了 <code>reply.noMoreAccepted = True</code>，那么 <code>prepared = true</code></li>
+</ul>
+</li>
+<li>广播 <code>Accept(index, n, v)</code> 到所有的 Acceptor</li>
+<li>一旦收到一个 Acceptor 的响应（<code>reply.n, reply.firstUnchosenIndex</code>）
+<ul>
+<li>如果 <code>reply.n &gt; n</code>，则从 <code>reply.n</code> 中修改 <code>maxRound</code>，修改 <code>prepared = False</code>，<strong>跳转到 1</strong></li>
+<li>如果 <code>reply.firstUnchosenIndex ≤ lastLogIndex</code> 并且 <code>acceptedProposal[reply.firstUnchosenIndex] == ∞</code>，就发送 <code>Success(index = reply.firstUnchosenIndex, value = acceptedV alue[reply.firstUnchosenIndex])</code></li>
+</ul>
+</li>
+<li>一旦收到超过半数 Acceptor 的 Accept 响应：修改 <code>acceptedP roposal[index] = ∞</code> 和 <code>acceptedValue[index] = v</code></li>
+<li>如果 <code>v == inputValue</code>， 返回 True</li>
+<li><strong>跳转到 2</strong></li>
+</ol>
+<h1 id="4-配置变更成员变更">4. 配置变更（成员变更）</h1>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/configuration-changes-demo.jpg" alt=""  />
+</p>
+<ul>
+<li>配置通常一个列表，每一项存着一台服务器的 id 和 ip 地址，作为一条特殊的记录存储在日志中</li>
+<li><code>𝛼</code> 表示配置多少条记录后才能生效。第 <code>i</code> 条记录 chosen 时的配置存储在第 <code>i-𝛼</code> 条或 <code>i-𝛼</code> 条之前</li>
+<li><code>α</code> 用作并发限制：在 <code>i</code> 这个位置的值被 chosen 之前，我们不能 chosen <code>i+α</code> 这个位置的值</li>
+</ul>
+]]></content:encoded>
     </item>
     
     <item>
@@ -50,7 +921,115 @@
       <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/raft-exam/</guid>
-      <description>试题 1. （4 分）下面的每张图都显示了一台 Raft 服务器上可能存储的日志（日志内容未显示，只显示日志的 index 和任期号）。考虑每份日志都是独立的，下面的日志</description>
+      <description>试题 1. （4 分）下面的每张图都显示了一台 Raft 服务器上可能存储的日志（日志内容未显示，只显示日志的 index 和任期号）。考虑每份日志都是独立的，下面的日志可能发生在 Raft 中吗？如果不能，请解释原因。
+a. b. c. d. 2. （6 分）下图显示了一个 5 台服务器集群中的日志（日志内容未显示）。哪些日志记录可以安全地应用到状态机？请解释你的答案。
+3. （10 分）考虑下图，它显示了一个 6 台服务器集群中的日志，此时刚刚选出任期 7 的新 Leader（日志内容未显示，只显示日志的 index 和任期号）。对于图中每一个 Follower，给定的日志是否可能在一个正常运行的 Raft 系统中存在？如果是，请描述该情况如何发生的；如果不是，解释为什么。
+4. （5 分）假设硬件或软件错误破坏了 Leader 为某个特定 Follower 存储的 nextIndex 值。这是否会影响系统的安全？请简要解释你的答案。
+5. （5 分）假设你实现了 Raft，并将它部署在同一个数据中心的所有服务器上。现在假设你要将系统部署到分布在世界各地的不同数据中心的每台服务器，与单数据中心版本相比，多数据中心的 Raft 需要做哪些更改？为什么？
+6. （10 分）每个 Follower 都在其磁盘上存储了 3 个信息：当前任期（currentTerm）、最近的投票（votedFor）、以及所有接受的日志记录（log[]）。 a. 假设 Follower 崩溃了，并且当它重启时，它最近的投票信息已丢失。该 Follower 重新加入集群是否安全（假设未对算法做任何修改）？解释一下你的答案。 b. 现在，假设崩溃期间 Follower 的日志被截断（truncated）了，日志丢失了最后的一些记录。该 Follower 重新加入集群是否安全（假设未对算法做任何修改）？解释一下你的答案。
+7. （10 分）如视频中所述，即使其它服务器认为 Leader 崩溃并选出了新的 Leader 后，（老的）Leader 依然可能继续运行。新的 Leader 将与集群中的多数派联系并更新它们的任期，因此，老的 Leader 将在与多数派中的任何一台服务器通信后立即下台。然而，与此期间，它也可以继续充当 Leader，并向尚未被新 Leader 联系到的 Follower 发出请求；此外，客户端可以继续向老的 Leader 发送请求。我们知道，在选举结束后，老的 Leader 不能提交（commit）任何新的日志记录，因为这样做需要联系选举多数派中的至少一台服务器。但是，老的 Leader 是否有可能执行一个成功 AppendEntries RPC，从而完成在选举开始前收到的旧日志记录的提交？如果可以，请解释这种情况是如何发生的，并讨论这是否会给 Raft 协议带来问题。如果不能发生这种情况，请说明原因。</description>
+      <content:encoded><![CDATA[<h1 id="试题">试题</h1>
+<h2 id="1">1.</h2>
+<p>（4 分）下面的每张图都显示了一台 Raft 服务器上可能存储的日志（日志内容未显示，只显示日志的 index 和任期号）。考虑每份日志都是独立的，下面的日志可能发生在 Raft 中吗？如果不能，请解释原因。</p>
+<p>a. <img loading="lazy" src="/media/images/20201026-raft-exam/legala.png" alt="legala"  />
+</p>
+<p>b. <img loading="lazy" src="/media/images/20201026-raft-exam/legalb.png" alt="legalb"  />
+</p>
+<p>c. <img loading="lazy" src="/media/images/20201026-raft-exam/legalc.png" alt="legalc"  />
+</p>
+<p>d. <img loading="lazy" src="/media/images/20201026-raft-exam/legald.png" alt="legald"  />
+</p>
+<h2 id="2">2.</h2>
+<p>（6 分）下图显示了一个 5 台服务器集群中的日志（日志内容未显示）。哪些日志记录可以安全地应用到状态机？请解释你的答案。</p>
+<p><img loading="lazy" src="/media/images/20201026-raft-exam/committed.png" alt="committed"  />
+</p>
+<h2 id="3">3.</h2>
+<p>（10 分）考虑下图，它显示了一个 6 台服务器集群中的日志，此时刚刚选出任期 7 的新 Leader（日志内容未显示，只显示日志的 index 和任期号）。对于图中每一个 Follower，给定的日志是否可能在一个正常运行的 Raft 系统中存在？如果是，请描述该情况如何发生的；如果不是，解释为什么。</p>
+<p><img loading="lazy" src="/media/images/20201026-raft-exam/inconsistency.png" alt="inconsistency"  />
+</p>
+<h2 id="4">4.</h2>
+<p>（5 分）假设硬件或软件错误破坏了 Leader 为某个特定 Follower 存储的 <code>nextIndex</code> 值。这是否会影响系统的安全？请简要解释你的答案。</p>
+<h2 id="5">5.</h2>
+<p>（5 分）假设你实现了 Raft，并将它部署在同一个数据中心的所有服务器上。现在假设你要将系统部署到分布在世界各地的不同数据中心的每台服务器，与单数据中心版本相比，多数据中心的 Raft 需要做哪些更改？为什么？</p>
+<h2 id="6">6.</h2>
+<p>（10 分）每个 Follower 都在其磁盘上存储了 3 个信息：当前任期（<code>currentTerm</code>）、最近的投票（<code>votedFor</code>）、以及所有接受的日志记录（<code>log[]</code>）。
+a. 假设 Follower 崩溃了，并且当它重启时，它最近的投票信息已丢失。该 Follower 重新加入集群是否安全（假设未对算法做任何修改）？解释一下你的答案。
+b. 现在，假设崩溃期间 Follower 的日志被截断（truncated）了，日志丢失了最后的一些记录。该 Follower 重新加入集群是否安全（假设未对算法做任何修改）？解释一下你的答案。</p>
+<h2 id="7">7.</h2>
+<p>（10 分）如<a href="https://www.youtube.com/watch?v=YbZ3zDzDnrw">视频</a>中所述，即使其它服务器认为 Leader 崩溃并选出了新的 Leader 后，（老的）Leader 依然可能继续运行。新的 Leader 将与集群中的多数派联系并更新它们的任期，因此，老的 Leader 将在与多数派中的任何一台服务器通信后立即下台。然而，与此期间，它也可以继续充当 Leader，并向尚未被新 Leader 联系到的 Follower 发出请求；此外，客户端可以继续向老的 Leader 发送请求。我们知道，在选举结束后，老的 Leader 不能提交（commit）任何<strong>新的</strong>日志记录，因为这样做需要联系选举多数派中的至少一台服务器。但是，老的 Leader 是否有可能执行一个成功 <code>AppendEntries RPC</code>，从而完成在选举开始前收到的旧日志记录的提交？如果可以，请解释这种情况是如何发生的，并讨论这是否会给 Raft 协议带来问题。如果不能发生这种情况，请说明原因。</p>
+<h2 id="8">8.</h2>
+<p>（10 分）在配置变更过程中，如果当前 Leader 不在 C-new 中，一旦 C-new 的日志记录被提及，它就会下台。然而，这意味着有一段时间，Leader 不属于它所领导的集群（Leader 上存储的当前配置条目是 C-new，它不包括 Leader）。假设修改算法，如果 C-new 不包含 Leader，则使 Leader 在其日志存储了 C-new 时就立即下台。这种方法可能发生的最坏情况是什么？</p>
+<hr>
+<h1 id="答案">答案</h1>
+<h2 id="1-1">1.</h2>
+<p>a. 不能：任期在日志里必须单调递增。</p>
+<p>具体来说，写入日志 &lt;4, 2&gt; 的 Leader1 只能从当前任期 &gt;= 3 的 Leader2 那里接收到日志 &lt;3, 3&gt; ，所以 Leader1 当前任期也将 &gt;= 3，那么它就不能写入 &lt;4, 2&gt;</p>
+<p>b. 可以</p>
+<p>c. 可以</p>
+<p>d. 不能：日志不允许空洞。
+具体来说，Leader 只能追加日志，<code>AppendEntries</code> 中的一致性检查永远不会允许空洞。</p>
+<h2 id="2-1">2.</h2>
+<p>日志记录 &lt;1,1&gt; 和 &lt;2,1&gt; 可以安全应用（到状态机）：</p>
+<p>如果一条日志记录没有存储在多数派上，它就不能被安全地应用。这是因为少数服务器可能故障，并且其它服务器（构成多数派）可以在不知道该日志记录的情况下继续运行。</p>
+<p>因此，我们只需要考虑记录 &lt;1,1&gt;, &lt;2,1&gt;, &lt;3,2&gt;, &lt;4,2&gt;, &lt;5,2&gt;。</p>
+<p>我们必须弄清楚哪些节点可以当选 Leader，然后看看它们是否会导致这些日志记录被删除。(Leader 处理不一致是通过强 Follower 直接复制自己的日志来解决的)</p>
+<p>S2 可以被选为 Leader，因为它的日志至少和 S3、S4 和 S5 一样完整。那么它可能导致 &lt;3,2&gt;, &lt;4,2&gt; 和 &lt;5,2&gt; 被删除，所以这些日志记录不能被安全地应用。</p>
+<p>所以我们只剩下 &lt;1,1&gt; 和 &lt;2,1&gt; 可能安全地应用（到状态机）。</p>
+<p>S3 和 S4 不能被选为 Leader，因为它们的日志不够完整。S5 能被选举为 LEader，但是它包含了 &lt;1,1&gt; 和 &lt;2,1&gt; 。</p>
+<p>因此，只有记录 &lt;1,1&gt; 和 &lt;2,1&gt; 可以被安全地应用（到状态机）</p>
+<h2 id="3-1">3.</h2>
+<p>(a) 不能。<strong>如果在不同的日志中的两条记录拥有相同的索引和任期号，那么他们之前的所有日志条目也全部相同。</strong> &lt;5, 3&gt; 在 Leader 和 a 中都存在，但是前面的日志却不相同。</p>
+<p>(b) 不能。同上，&lt;6, 5&gt; 在 Leader 和 b 中都存在，但是前面的日志却不相同。</p>
+<p>(c) 可能。c 可能是第 6 任期的 Leader，其起始日志为 &lt;1,1&gt;, &lt;2,1&gt; 并且可能在其日志中写了一堆记录，而没有与我们第 7 任期的当前 Leader 进行通信。这也假设当前 Leader 的 &lt;3,3&gt;、&lt;4,3&gt;、&lt;5,3&gt;、&lt;6,5&gt; 这几个日志记录在第 5 任期没有被写入，这是可能的。</p>
+<p>(d) 不能。在一个日志中，任期只能是单调递增的。</p>
+<p>(e) 可能。例如，e 是任期 1 的 Leader，提交了日志 &lt;1,1&gt; 和 &lt;2,1&gt;，然后与其它服务器失联（网络分区），但还在继续处理客户端请求。</p>
+<h2 id="4-1">4.</h2>
+<p>不会。</p>
+<p>如果 <code>nextIndex</code> 的值太小，Leader 将发送额外的 <code>AppendEntries</code> 请求。每个请求都不会对 Follower 的日志产生任何影响（它们将进行一致性检查，但不会和 Follower 日志中的记录产生冲突，也不会向 Follower 提供该 Follower 没有存储的任何日志记录），成功的响应将告诉 Leader 应该增加其 <code>nextIndex</code>。</p>
+<p>如果 <code>nextIndex</code> 的值太大，Leader 也将发送额外的 <code>AppendEntries</code> 请求，对此，一致性检查将会失败，从而导致 Follower 拒绝该请求，Leader 将会递减 <code>nextIndex</code> 值并重试。</p>
+<p>无论哪种方式，这都是安全的行为，因为两种情况下都不会修改关键的状态。</p>
+<h2 id="5-1">5.</h2>
+<p>我们需要将选举超时(election timeouts)时间设置得更长：预期的广播时间更长，选举超时时间应该比广播时间长得多，以便候选人有机会在再次超时之前完成一次选举。该算法其余部分不需要任何修改，因为它不依赖于时序。</p>
+<h2 id="6-1">6.</h2>
+<p>a. 不安全。这将允许一个服务器在同一任期内投票两次，这样以来，每个任期就可以有多个 Leader 参与，这几乎破坏了一切。</p>
+<p>例如，对于 3 台服务器：</p>
+<ul>
+<li>S1 获得 S1 和 S2 的投票，并且成为任期 2 的 Leader</li>
+<li>S2 重启，丢失了它在任期 2 中投过的票(votedFor)</li>
+<li>S3 获得 S2 和 S3 的选票，并且成为任期 2 的第二任 Leader</li>
+<li>现在 S1 和 S3 都可以在任期 2 同一 index 的日志记录上提交不同的值。</li>
+</ul>
+<p>b. 不安全。这将允许已提交的日志不被存储在多数派上，然后将允许同一 index 提交其它不同的值。
+例如，对于 3 台服务器：</p>
+<ul>
+<li>S1 成为任期 2 的 Leader，并在自己和 S2 上追加写了 index=1, term=2, value=X，并设置 committedIndex=1，然后返回已提交的值 X 给客户端</li>
+<li>S2 重启，并且丢失了其日志中的记录</li>
+<li>S3（具有空的日志）成为任期 3 的 Leader，因为它的空日志也至少与 S2 一样完整。S3 在自己和 S2 上追加写 index=1, term=3, value=Y，并设置committedIndex=1，然后返回已提交的值 Y 给客户端</li>
+</ul>
+<h2 id="7-1">7.</h2>
+<p>可能。仅当新 Leader 也包含正在提交的日志时，才会发生这种情况，所以不会引起问题。</p>
+<p>下面是一个在 5 台服务器发生这种情况的例子：</p>
+<ul>
+<li>带有空日志的 S1 成为任期 2 的 Leader，票选来自 S1，S2 和 S3</li>
+<li>S1 将 index=1, term=2, value=X 追加写到它自己和 S2</li>
+<li>S2 的日志中包含 index=1, term=2, value=X，S2 成为任期 3 的 Leader，票选来自 S2，S4 和 S5</li>
+<li>S1 将 index=1, term=2, value=X 追加写到 S3</li>
+<li>此时，S1 已经完成了对 index=1, term=2, value=X 的提交，即使它不再是当前任期的 Leader</li>
+</ul>
+<p>这种行为是安全的，因为任何新的 Leader 也必须包含该日志记录，因此它将永远存在。</p>
+<p>该日志记录必须存储在给新 Leader（记为 L）投票的服务器 S 上，并且必须在 S 给新 Leader 投票之前存储在 S 上，日志完整性会检测，S 只能在以下情况投票给 L：
+<code>L.lastLogTerm &gt; S.lastLogTerm</code> 或者
+<code>(L.lastLogTerm == S.lastLogTerm and L.lastLogIndex &gt;= S.lastLogIndex)</code></p>
+<p>如果 L 是 S 之后的第一任 Leader，那么我们必须处于第二个条件下，那么 L 一定包含了 S 拥有的所有日志记录，包括我们担心的那个记录。</p>
+<p>如果 L' 是 S 之后的第二任 Leader，那么 L' 只有从 L 那里接收到了日志，它最新的任期号才可能比 S 大。但是 L 在把自己的日志复制到 L' 时也一定已经把我们担心的那条日志复制到 L' 了，所以这也是安全的。</p>
+<p>而且，这个论点对未来所有的 Leader 都成立。</p>
+<h2 id="8-1">8.</h2>
+<p>根据对算法的理解，有两种可能的正确答案。</p>
+<p>答案 1: 假设一个不错的实现——一旦一个服务器不再属于其当前配置，它就不会再成为 Candidate。问题在于，C-old 中的另一台服务器可能会被选为 Leader，在其日志中追加 C-new，然后立即下台。</p>
+<p>更糟糕的是，这种情况可能会在 C-old 的多数派服务器上重复。一旦超过半数 C-old 存储了 C-new 条目，它就不能再重复了。由于日志完整性检查，没有 C-new 这条日志记录的 C-old 中的任何服务器都不能当选（超过半数的 C-old 需要日志 C-old+new，不会再给没有 C-new 这条日志记录的服务器投票。）</p>
+<p>在这之后，C-new 中的某台服务器必须当选，集群就会继续运行。所以最坏的情况其实只是跑了<strong>最多</strong>大约 |C-old|/2 次额外的选举和选举超时。</p>
+<p>答案 2: 假设一个朴素的（naive）实现，仍允许一个不属于其当前配置的服务器成为 Candidate，在这种情况下，最坏的情况是， Leader 一下台就再次当选（它的日志仍然是完整的），然后再下台，然后无限重复。</p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -59,7 +1038,114 @@
       <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/paxos-exam/</guid>
-      <description>试题 1. (4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志（每个条目中的数字代表 acceptedProposal 值）。考虑每份日志都是独立的，下列日志是否可能发生在正确实现</description>
+      <description>试题 1. (4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志（每个条目中的数字代表 acceptedProposal 值）。考虑每份日志都是独立的，下列日志是否可能发生在正确实现的 Multi-Paxos 中？
+a. b. c. d. 2. (6 分) 对于 Basic Paxos，假设一个集群有 5 台服务器，其中 3 台接受了(accepted)提案编号 5.1 和对应的提案值 X，在这种情况下，集群中的任意服务器是否有可能接受不同的值 Y ？解释你的答案。
+3. (10 分) 假设 Multi-Paxos 集群选出了一个节点作为 Leader，而且没有其它 Leader。此外，假设该节点继续担任一段时间的 Leader，为日志 chosen 了很多命令，并且在这期间依然没有其它节点试图担任 Leader。
+a. 在此期间，该节点最少要发送多少轮 Prepare RPC？给出解释，且尽可能精确。
+b. 在此期间，该节点最多要发送多少次 Prepare RPC？给出解释，且尽可能精确。
+4. (5 分) 当一个 Acceptor 使用 Proposer 提供的 firstUnchosenIndex 来标记被 chosen 的日志记录时，它必须先检查日志记录中的提案编号（acceptedProposal[i] == request.proposal）。假设它跳过了这一检查：请描述一个系统异常的情况。
+5. (5 分) 假设提案编号的两个部分（自增 id 和唯一 server_id）进行了互换，即 server_id 位于高位。 a.</description>
+      <content:encoded><![CDATA[<h1 id="试题">试题</h1>
+<h2 id="1">1.</h2>
+<p>(4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志（每个条目中的数字代表 <code>acceptedProposal</code> 值）。考虑每份日志都是独立的，下列日志是否可能发生在正确实现的 Multi-Paxos 中？</p>
+<p>a. <img loading="lazy" src="/media/images/20201026-paxos-exam/paxosLoga.png" alt="paxosLoga"  />
+</p>
+<p>b. <img loading="lazy" src="/media/images/20201026-paxos-exam/paxosLogb.png" alt="paxosLogb"  />
+</p>
+<p>c. <img loading="lazy" src="/media/images/20201026-paxos-exam/paxosLogc.png" alt="paxosLogc"  />
+</p>
+<p>d. <img loading="lazy" src="/media/images/20201026-paxos-exam/paxosLogd.png" alt="paxosLogd"  />
+</p>
+<h2 id="2">2.</h2>
+<p>(6 分) 对于 Basic Paxos，假设一个集群有 5 台服务器，其中 3 台接受了(accepted)提案编号 5.1 和对应的提案值 X，在这种情况下，集群中的<strong>任意服务器</strong>是否有可能接受不同的值 Y ？解释你的答案。</p>
+<h2 id="3">3.</h2>
+<p>(10 分) 假设 Multi-Paxos 集群选出了一个节点作为 Leader，而且没有其它 Leader。此外，假设该节点继续担任一段时间的 Leader，为日志 chosen 了很多命令，并且在这期间依然没有其它节点试图担任 Leader。</p>
+<p>a. 在此期间，该节点<strong>最少</strong>要发送多少轮 <code>Prepare RPC</code>？给出解释，且尽可能精确。</p>
+<p>b. 在此期间，该节点<strong>最多</strong>要发送多少次 <code>Prepare RPC</code>？给出解释，且尽可能精确。</p>
+<h2 id="4">4.</h2>
+<p>(5 分) 当一个 Acceptor 使用 Proposer 提供的 <code>firstUnchosenIndex</code> 来标记被 chosen 的日志记录时，它必须先检查日志记录中的提案编号（<code>acceptedProposal[i] == request.proposal</code>）。假设它跳过了这一检查：请描述一个系统异常的情况。</p>
+<h2 id="5">5.</h2>
+<p>(5 分) 假设提案编号的两个部分（自增 id 和唯一 server_id）进行了互换，即 <code>server_id</code> 位于高位。
+a. 这会影响 Paxos 的安全性（Safety）吗？请简单解释你的答案。
+b. 这会影响 Paxos 的活性（Liveness）吗？请简单解释你的答案。</p>
+<h2 id="6">6.</h2>
+<p>(10 分) 假设一个 Proposer 以初始值 v1 运行 Basic Paxos，但是它在协议执行过程中或执行后的某个（未知）时间点宕机了。假设该 Proposer 重新启动并从头开始运行协议，使用之前使用的相同的提案编号，但初始值为 v2，这样安全吗？请解释你的答案。</p>
+<h2 id="7">7.</h2>
+<p>(10 分) 在一个成功的 <code>Accept RPC</code> 中，Acceptor 将其 <code>minProposal</code> 设为 n（<code>Accept RPC</code> 中的提案编号）。描述一个这样做实际上改变了 <code>minProposal</code> 值的场景（即 <code>minProposal</code> 还没有等于 n）。描述如果没有这段代码，系统将出现异常行为的场景。</p>
+<h2 id="8">8.</h2>
+<p>(10 分) 考虑 Multi-Paxos 的配置变更，旧配置由服务器 1、2 和 3 组成，新配置由服务器 3、4 和 5 组成。假设新配置在日志中第 N 条被 chosen，同时日志记录 N 到 N+α (含)也都被 chosen。假设此时旧服务器 1 和 2 被关闭，因为它们不属于新配置。描述下这可能在系统中引起的问题。</p>
+<hr>
+<h1 id="答案">答案</h1>
+<h2 id="1-1">1.</h2>
+<p>a. 是。</p>
+<p>b. 是。</p>
+<p>c. 是。</p>
+<p>d. 是。</p>
+<h2 id="2-1">2.</h2>
+<p>是。如果 S1，S2 和 S3 接受了提案 &lt;5.1, X&gt;，其它服务器仍然可能接受<strong>更早的提案编号</strong>的提案值 Y。</p>
+<p>例如，S4 先发送 Prepare(3.4) 发现并没有已接受的提案值，接着 S1 发送 Prepare（5.1）到 S1，S2，S3，然后 S1，S2，S3 接受了&lt;5.1, X&gt;，此时 S4 仍然可能在 S4，S5 完成提案 &lt;3.4, Y&gt;</p>
+<h2 id="3-1">3.</h2>
+<p>a. 最少只发送 1 轮 <code>Prepare RPC</code>，如果多数派 Prepare 都立即返回了具有 <code>noMoreAccepted=true</code> 的响应。</p>
+<p>b. 最多是： Leader 节点上每有一个未 chosen 但是 Acceptor 已经接受的日志记录，就会有一轮 <code>Prepare RPC</code>。这发生在如果每次 Leader 为其没有 chosen 的日志发送 <code>Prepare</code> 请求，都发现有一个 Acceptor 已经接受了该提案值，那它就会在该条目位置采用这个提案值，然后继续尝试下一个日志条目。这样就会发生最多的轮次。</p>
+<h2 id="4-1">4.</h2>
+<p>可能出现的异常行为是：服务器会标记两个不同的 chosen 值。用 2 个竞争的提案，3 节点集群和 2 个日志来举例：</p>
+<ul>
+<li>S1 完成一轮 Prepare 发送提案编号 n=1.1, index=1 给 S1，S2</li>
+<li>S1 只完成 S1（它自己）的 Accept 提案 n=1.1, value = X, index = 1</li>
+<li>S2 完成一轮 Prepare 发送提案编号 n=2.2, index=1 给 S2，S3，收到二者包含 <code>noMoreAccepted=true</code> 的响应</li>
+<li>S2 完成一轮 Accept，S2、S3 收到 n=2.2, value=Y, index=1</li>
+<li>S2 标记 index 1 的日志为 chosen</li>
+<li>S2 完成一轮 Accept，S1, S2, 和 S3 收到 n=2.2, value=Z, index=2, firstUnchosenIndex=2，此时，S1 将会发生异常：将 n=1.1, value=X 的日志设为 chosen，然后将 X 应用到状态机。这是不正确的，因为实际上是 Y 被 chosen。</li>
+</ul>
+<h2 id="5-1">5.</h2>
+<p>a. 不会。因为安全性只需要提案编号唯一，每台服务器的 server_id 是唯一的，并且有自增 id，所以唯一性得到保证。</p>
+<p>b. 会。例如，server_id 最大的服务器向集群中每一台服务器发出的 <code>Prepare RPC</code> 将会永远失败。然后，其它 Proposer 无法继续运行，因为其它服务器的 <code>minProposal</code> 对于 Proposer 来说太大了。</p>
+<h2 id="6-1">6.</h2>
+<p>不安全。不同的提案必须具有不同的提案编号。下面是一个 3 节点集群的例子：</p>
+<ul>
+<li>S1 发送 <code>Prepare(n=1.1)</code> 至 S1，S2</li>
+<li>S1 发送 <code>Accept(n=1.1, v=v1)</code> 至 S1</li>
+<li>S1 重启</li>
+<li>S1 发送  <code>Prepare(n=1.1)</code> 至 S2，S3（并且发现还没有被接受的提案）</li>
+<li>S1 发送 <code>Accept(n=1.1, v=v2)</code> 与 S2，S3</li>
+<li>S1 将 v2 被 chosen 返回给客户端</li>
+<li>S2 发送 <code>Prepare(n=2.2)</code> 至 S1，S2 并收到响应：
+<ul>
+<li>来自 S1: acceptedProposal=1.1, acceptedValue=v1</li>
+<li>来自 S2: acceptedProposal=1.1, acceptedValue=v2</li>
+</ul>
+</li>
+<li>S2 直接选择了 v1 作为提案值</li>
+<li>S2 发送 <code>Accept(n=2.2, v=v1)</code>至S1，S2，S3</li>
+<li>S2 将 v1 被 chosen 返回给客户端</li>
+</ul>
+<p>可能出现的另一个问题是，崩溃前的请求在崩溃之后才被送到：</p>
+<ul>
+<li>S1 发送 <code>Prepare(n=1.1)</code> 至 S1，S2</li>
+<li>S1 发送 <code>Accept(n=1.1, v=v1)</code> 至 S1</li>
+<li>S1 发送  <code>Accept(n=1.1)</code> 至 S2 和 S3，但是它们并没有收到</li>
+<li>S1 重启</li>
+<li>S1 发送 <code>Prepare(n=1.1)</code> 至 S2，S3（并且发现还没有被接受的提案）</li>
+<li>S1 发送 <code>Accept(n=1.1, v=v2)</code> 至 S2 和 S3</li>
+<li>S1 将 v2 被 chosen 返回给客户端</li>
+<li>现在，S2 和 S3 收到了（之前的） <code>Accept(n=1.1, v=v1)</code> 请求，并且覆盖了 acceptedValue 设为 v1。现在集群的状态是 v1 被 chosen，但是客户端收到 v2 被 chosen。</li>
+</ul>
+<h2 id="7-1">7.</h2>
+<p>用 5 个节点的 Basic Paxos 举例：</p>
+<ul>
+<li>S1 发送 <code>Prepare(n=1.1)</code> 至 S1, S2, S3（并且发现没有接受的提案）</li>
+<li>S5 发送 <code>Prepare(n=2.5)</code> 至 S3, S4, S5（并且发现没有接受的提案）</li>
+<li>S5 发送 <code>Accept(n=2.5, v=X)</code> 至 S2, S3, S5，这时 S2 的 <code>minProposal</code> 应该是 2.5</li>
+<li>S5 返回 X 被 chosen 给客户端</li>
+<li>S1 发送 <code>Accept(n=1.1, v=Y)</code> 至 S2，这通常会被拒绝，但是如果 Accept 阶段未更新 S2 的 <code>minProposal</code>，这会被接受</li>
+<li>S3 发送 <code>Prepare(n=3.3)</code> 至 S1, S2, S4（并且发现 n=1.1, v=Y）</li>
+<li>S3 发送 <code>Accept(n=3.3, v=Y)</code>至 S1, S2, S3, S4, S5</li>
+<li>S3 返回 Y 被 chosen 给客户端</li>
+</ul>
+<h2 id="8-1">8.</h2>
+<p>这将导致新集群的活性(liveness)问题，因为新集群服务器上的 <code>firstUnchosenIndex</code> 可能小于 N+α。</p>
+<p>例如，在最坏情况下，S3 可能永久故障了，而 S1 和 S2 则可能没有尝试将任何值同步到 S4 和 S5（仅使用本讲义中介绍的算法）。然后，S4 和 S5 将永远无法学习到日志记录第 1 到 N+α-1 所 chosen 的值，因为它们无法和 S1、S2 或 S3 进行通信。S4 和 S5 的状态机将永远无法超越其初始状态。</p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -68,7 +1154,162 @@
       <pubDate>Sun, 18 Oct 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/multi-paxos/</guid>
-      <description>分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受</description>
+      <description>分布式系统为了实现多副本状态机（Replicated state machine），常常需要一个多副本日志（Replicated log）系统，这个原理受到简单的经验常识启发：如果日志的内容和顺序都相同，多个进程从同一状态开始，并且以相同的顺序获得相同的输入，那么这些进程将会生成相同的输出，并且结束在相同的状态。
+Replicated log =&amp;gt; Replicated state machine
+问题是：
+ 如何保证日志数据在每台机器上都一样？
+ 当然是一直在讨论的 Paxos。一次独立的 Paxos 代表日志中的一条记录，重复运行 Paxos 即可创建一个 Replicated log。
+但是如果每一组提案值都通过一次 Paxos 算法实例来达成共识，每次都要两轮 RPC，会产生大量开销。所以需要对 Paxos 做一些调整解决更实际的问题，并提升性能。经过一系列优化后的 Paxos 我们称之为 Multi-Paxos。
+ Multi-Paxos 的目标就是实现 Replicated log.
+ 下面我们从第一个问题开始。
+如何确定是哪条日志记录？ 首先，Replicated log 类似一个数组，我们需要知道当次请求是在写日志的第几位。因此，Multi-Paxos 做的第一个调整就是要添加一个日志的 index 参数到 Prepare 和 Accept 阶段，表示这轮 Paxos 正在决策哪一条日志记录。
+现在流程大致如下，当收到客户端带有提案值的请求时：
+ 找到第一个没有 chosen 的日志记录 运行 Basic Paxos，对这个 index 用客户端请求的提案值进行提案 Prepare 是否返回 acceptedValue？  是：用 acceptedValue 跑完这轮 Paxos，然后回到步骤 1 继续处理 否：chosen 客户端提案值    举个例子 如图所示，首先，服务器上的每条日志记录可能存在三种状态：</description>
+      <content:encoded><![CDATA[<p>分布式系统为了实现<strong>多副本状态机（Replicated state machine）</strong>，常常需要一个多副本日志（Replicated log）系统，<a href="https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying">这个原理受到简单的经验常识启发</a>：如果日志的内容和顺序都相同，多个进程从同一状态开始，并且以相同的顺序获得相同的输入，那么这些进程将会生成相同的输出，并且结束在相同的状态。</p>
+<p>Replicated log =&gt; Replicated state machine</p>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/Replicated-state-machine.jpg" alt="Replicated-state-machine"  />
+</p>
+<p>问题是：</p>
+<blockquote>
+<p>如何保证日志数据在每台机器上都一样？</p>
+</blockquote>
+<p>当然是一直在讨论的 Paxos。一次独立的 Paxos 代表日志中的一条记录，重复运行 Paxos 即可创建一个 Replicated log。</p>
+<p>但是如果每一组提案值都通过一次 Paxos 算法实例来达成共识，每次都要两轮 RPC，会产生大量开销。所以需要对 Paxos 做一些调整解决更实际的问题，并提升性能。经过一系列优化后的 Paxos 我们称之为 Multi-Paxos。</p>
+<blockquote>
+<p>Multi-Paxos 的目标就是实现 Replicated log.</p>
+</blockquote>
+<p>下面我们从第一个问题开始。</p>
+<h2 id="如何确定是哪条日志记录">如何确定是哪条日志记录？</h2>
+<p>首先，Replicated log 类似一个数组，我们需要知道当次请求是在写日志的第几位。因此，Multi-Paxos 做的第一个调整就是要添加一个日志的 index 参数到 <code>Prepare</code> 和 <code>Accept</code> 阶段，表示这轮 Paxos 正在决策哪一条日志记录。</p>
+<p>现在流程大致如下，当收到客户端带有提案值的请求时：</p>
+<ol>
+<li>找到第一个没有 chosen 的日志记录</li>
+<li>运行 Basic Paxos，对这个 index 用客户端请求的提案值进行提案</li>
+<li>Prepare 是否返回 <code>acceptedValue</code>？
+<ul>
+<li>是：用 <code>acceptedValue</code> 跑完这轮 Paxos，然后回到步骤 1 继续处理</li>
+<li>否：chosen 客户端提案值</li>
+</ul>
+</li>
+</ol>
+<h3 id="举个例子">举个例子</h3>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/Selecting-log-entries.png" alt=""  />
+</p>
+<p>如图所示，首先，服务器上的每条日志记录可能存在三种状态：</p>
+<ul>
+<li>已经保存并知道被 chosen 的日志记录，例如 S1 方框加粗的第 1、2、6 条记录（后面会介绍服务器如何知道这些记录已经被 chosen）</li>
+<li>已经保存但不知道有没有被 chosen，例如 S1 第 3 条 <code>cmp</code> 命令。观察三台服务器上的日志，cmp 其实已经存在两台上达成了多数派，只是 S1 还不知道</li>
+<li>空的记录，例如 S1 第 4、5 条记录，S1 在这个位置没有接受过值，但可能在其它服务器接受过：例如 S2 第 4 条接受了 <code>sub</code>，S3 第 5 条接受了 <code>cmp</code></li>
+</ul>
+<p>我们知道三台机可以容忍一台故障，为了更具体的分析，我们假设此时<strong>是 S3 宕机的情况</strong>。同时，这里的提案值是一条具体的命令。当 S1 收到客户端的请求命令 <code>jmp</code> 时，：</p>
+<ol>
+<li>找到第一个没有 chosen 的日志记录：图示中是第 3 条 <code>cmp</code> 命令。</li>
+<li>这时候 S1 会尝试让 <code>jmp</code> 作为第 3 条的 chosen 值，运行 Paxos。</li>
+<li>因为 S1 的 Acceptor 已经接受了 <code>cmp</code>，所以在 Prepare 阶段会返回 <code>cmp</code>，接着用 <code>cmp</code> 作为提案值跑完这轮 Paxos，s2 也将接受 <code>cmp</code> 同时 S1 的 <code>cmp</code> 变为 chosen 状态，然后继续找下一个没有 chosen 的位置——也就是第 4 位。</li>
+<li>S2 的第 4 个位置接受了 <code>sub</code>，所以在 Prepare 阶段会返回 <code>sub</code>，S1 的第 4 位会 chosen <code>sub</code>，接着往下找。</li>
+<li>第 5 位 S1 和 S2 都为空，不会返回 <code>acceptedValue</code>，所以第 5 个位置就确定为 <code>jmp</code> 命令的位置，运行 Paxos，并返回请求。</li>
+</ol>
+<p>值得注意的是，这个系统是可以并行处理多个客户端请求，比如 S1 知道 3、4、5、7 这几个位置都是未 chosen 的，就直接把收到的 4 个命令并行尝试写到这四个位置。但是，如果是状态机要执行日志时，必须是按照日志顺序逐一输入，如果第 3 条没有被 chosen，即便第 4 条已经 chosen 了，状态机也不能执行第 4 条命令。</p>
+<p>还记得我们之前文章里说的活锁。如果所有的 Proposer 都一起并行工作，因 Proposer 间大量的冲突而需要更多轮 RPC 才能达成共识的可能性就很大。另外，<strong>每个提案最优情况下还是需要两轮 RPC</strong> ！</p>
+<p>一般通过以下方式优化：</p>
+<ul>
+<li>选择一个Leader，任意时刻只有它一个 Proposer，这样可以避免冲突</li>
+<li>减少大部分 Prepare 请求，只需要对整个日志进行一次 Prepare，后面大部分日志可以通过一次 Accept 被 chosen</li>
+</ul>
+<p>下面谈谈这两个优化。</p>
+<h2 id="leader-选举">Leader 选举</h2>
+<p>有很多办法可以进行选举，Lamport 提出了一种简单的方式：让 server_id 最大的节点成为Leader（在<a href="http://tangwz.com/post/basic-paxos/">上篇</a>说到提案编号由自增 id 和 server_id 组成，就是这个 server_id）。</p>
+<ol>
+<li>既然每台服务器都有一个 server_id，我们就直接让 server_id 最大的服务器成为 Leader，这意味着每台服务器需要知道其它服务器的 server_id</li>
+<li>为此，每个节点每隔 Tms 向其它服务器发送心跳</li>
+<li>如果一个节点在 2Tms 时间内没有收到比自己 server_id 更大的心跳，那它自己就转为 Leader，意味着：
+<ul>
+<li>该节点处理客户端请求</li>
+<li>该节点同时担任 Proposer 和 Acceptor</li>
+</ul>
+</li>
+<li>如果一个节点收到比自己 server_id 更大的服务器的心跳，那么它就不能成为 Leader，意味着：
+<ul>
+<li>该节点拒绝掉客户端请求，或者将请求重定向到 Leader</li>
+<li>该节点只能担任 Acceptor</li>
+</ul>
+</li>
+</ol>
+<p>值得注意的是，这是非常简单的策略，这种方式系统中同时有两个 Leader 的概率是较小的。<strong>即使是系统中有两个 Leader，Paxos 也是能正常工作的，只是冲突的概率就大了很多，效率也会降低。</strong></p>
+<p>有一些基于租约的策略显得更为稳定，也更复杂，在此不表。</p>
+<h2 id="减少-prepare-请求">减少 Prepare 请求</h2>
+<p>在讨论如何减少 Prepare 请求之前，先讨论下 Prepare 阶段的作用，需要 Prepare 有两个原因：</p>
+<ol>
+<li>屏蔽老的提案：但 Basic-Paxos 只作用在日志的一条记录</li>
+<li>检查可能已经被 chosen 的 value 来代替原本的提案值：多个 Proposer 并发进行提案的时候，新的 Proposal 要确保提案的值相同</li>
+</ol>
+<p>我们<strong>依然是需要 Prepare 的</strong>。我们要做的是减少大部分 Prepare 请求，首先要搞定这两个功能。</p>
+<p>对于 1，我们不再让提案编号只屏蔽一个 index 位置，而是让它变成全局的，即屏蔽整个日志。一旦 Prepare 成功，整个日志都会阻塞（值得注意的是，Accept 阶段还是只能写在对应的 index 位置上）。</p>
+<p>对于2，需要拓展 Prepare 请求的返回信息，和之前一样，Prepare 还是会返回最大提案编号的 <code>acceptedValue</code>，除此之外，Acceptor 还会向后查看日志记录，如果要写的这个位置之后都是空的记录，没有接受过任何值，那么 Acceptor 就额外返回一个标志位 <code>noMoreAccepted</code>。</p>
+<p>后续，如果 Leader 接收到超过半数的 Acceptor 回复了 <code>noMoreAccepted</code>，那 Leader 就不需要发送 Prepare 请求了，直接发送 Accept 请求即可。这样只需要一轮 RPC。</p>
+<h2 id="副本的完整性">副本的完整性</h2>
+<p>目前为止，通过选主和减少 Prepare 请求之后的 Multi-Paxos 依然不够完整，还需要解决：</p>
+<ul>
+<li>之前的日志只需要被多数派接受，完整的日志记录需要复制到全部节点</li>
+<li>只有 Proposer（也就是Leader） 知道哪些记录被 chosen 了，需要所有的服务器都知道哪些记录被 chosen</li>
+</ul>
+<p>换句话说，我们需要每台机的日志都完整，这样状态机执行日志后才能达到一样的状态。</p>
+<p>要做到这点，我们需要：</p>
+<ol>
+<li>为了让日志尽可能被复制到每台服务器：Leader 在收到多数派 Acceptor 回复后，可以继续做后面的处理，但同时在后台继续对未回复的 Acceptor 进行重试。这样不会影响客户端的响应时间，但这也不能确保完全复制了（例如，如果 Leader 在中途宕机了）</li>
+<li>为了追踪哪些记录是被 chosen 的，我们增加一些内容：
+<ul>
+<li><code>acceptedProposal</code> 代表日志的提案编号，如果第 i 条记录被 chosen，则 <code>acceptedProposal[i] = 无穷大</code>（这是因为，只有提案编号更大的提案才能被接受，无穷大则表示无法再被重写了）</li>
+<li>每个节点都维护一个 <code>firstUnChosenIndex</code>，表示第一个没有被 chosen 的日志位置。（即第一个 <code>acceptedProposal[i] != 无穷大</code>的节点）</li>
+</ul>
+</li>
+<li>Leader 告诉 Acceptor 哪些日志被 chosen ：Leader 在向 Acceptor 发送 Accept 请求的时候带上 <code>firstUnChosenIndex</code>，这样 Acceptor 收到 Accept 请求的时候，如果第 i 条日志满足 <code>i &lt; request.firstUnchosenIndex &amp;&amp; acceptedProposal[i] == request.proposal</code>，则标记 i 为 chosen（即设为无穷大）</li>
+</ol>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/full-disclosure.jpg" alt=""  />
+</p>
+<p>用图示来说明一下，上图表示同一个 Acceptor 节点 Accept 请求前后的 ``。该 Acceptor 在 Accept 请求之前的第 6 位的提案编号为 3.4，这时它收到一个提案编号也为 3.4 的 Accept 请求，并且请求的 firstUnchosenIndex = 7，大于之前 3.4 所在的 6，所以<strong>将选中第 6 位，同时因为该请求的 index = 8，acceptedProposal[8] == 3.4</strong></p>
+<ol start="4">
+<li>到了这里还需要考虑，Acceptor 的日志条目中仍然可能有一些前任 Leader 留下的提案记录，还没有完成提案的复制或者 chosen 时 Leader 宕机，换了一个 Leader 节点，这时候需要：
+<ul>
+<li>Acceptor 将其 <code>firstUnchosenIndex</code> 作为 Accept 请求的响应返回给 Proposer</li>
+<li>Proposer 判断如果 <code>Acceptor.firstUnChosenIndex &lt; Proposer.firstUnChosenIndex</code>，则在后台（异步）发送 <code>Success(index, v)</code> RPC</li>
+<li>Acceptor 收到 Success RPC 后，更新已经被 chosen 的日志记录：
+<ul>
+<li>acceptedValue[index] = v</li>
+<li>acceptedProposal[index] = 无穷大</li>
+<li>return firstUnchosenIndex</li>
+<li>如果需要(可能存在多个不确定的状态)，Proposer 发送额外的 Success RPC</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<p>总结一下，通过 4 个步骤就可以确保所有的 Acceptor 都最终知道 chosen 的日志记录。在一般的情况，并不需要额外的第 4 步，只有在 Leader 切换时才可能需要第 4 步。</p>
+<p>现在我们的日志已被完全复制了。因此，让我们转头看看与客户端的交互。</p>
+<h2 id="客户端请求">客户端请求</h2>
+<p>接下来需要考虑客户端如何与系统交互。</p>
+<p>首先，当客户端第一次请求时，并不知道谁是 Leader，它任意请求一台服务器，如果该服务器不是 Leader，重定向给 Leader。</p>
+<p>Leader 直到日志记录被 chosen 并且被 Leader 的状态机执行才返回响应给客户端。</p>
+<p>客户端会一直和 Leader 交互，直到无法再联系上它（例如请求超时）。在这种情况下，客户端会联系任何其它服务器，这些服务器又在重定向到实际的 Leader。</p>
+<p>但这存在一个问题，如果请求提案被 chosen 后，Leader 在回复客户端之前宕机了。客户端会认为请求失败了，并重试请求。这相当于一个命令会被状态机执行两次，这是不可接受的。</p>
+<p>解决办法是客户端为每个请求增加一个唯一 id，服务器将该 id 与命令一起保存到日志记录中。状态机在执行命令之前，会根据 id 检查该命令是否被执行过。</p>
+<h2 id="集群管理加入或减少节点">集群管理（加入或减少节点）</h2>
+<p>最后一个非常棘手的问题，因为集群中的节点是会变更的，包括：服务器的 id、网络地址变更和节点数量等。集群节点数量改变会影响多数派数量的判断，我们必须保证不会出现两个重叠的多数派。</p>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/configuration-changes.jpg" alt=""  />
+</p>
+<p>Lamport 在 Paxos 论文中的建议解决方案是：使用日志来管理这些变更。当前的集群配置被当作一条日志记录存储起来，并与其它的日志记录一起被复制同步。</p>
+<p><img loading="lazy" src="/media/images/20201018-multi-paxos/configuration-changes-demo.jpg" alt=""  />
+</p>
+<p>这里看起来会比较奇怪，如图所示，第 1、3 个位置存储了两个不同的系统配置，其它位置的日志存储了状态机要执行的命令。增加一个系统参数 𝛼 去控制当配置变更时什么时候去应用它，<strong>𝛼 表示配置多少条记录后才能生效。</strong></p>
+<p>这里假设 𝛼 = 3，意味着 C1 在 3 条记录内不生效，也就是 C1 在第 4 条才会生效， C2 在第 6 条开始生效。</p>
+<p>𝛼 是在系统启动的时候就指定的参数。这个参数的大小会限制我们在系统可以同时 chosen 的日志条数：在 <code>i</code> 这个位置的值被 chosen 之前，我们不能 chosen <code>i+α</code> 这个位置的值——因为我们不知道中间是否有配置变更。</p>
+<p>所以，如果 α 值很小，假设是 1，那整个系统就是串行工作了；如果 α = 3，意味着我们可以同时 chosen 3 个位置的值；如果 α 非常大， α = 1000，那事情就会变得复杂，如果我们要变更配置，可能要等配置所在的 1000 条记录都被 chosen 以后才会生效，那要等好一阵子。这时候为了让配置更快生效，我们可以写入一些 <code>no-op</code> 指令来填充日志，使得迅速达到需要的条数，而不用一直等待客户端请求进来。</p>
+<h2 id="总结">总结</h2>
+<p>首先，描述了如何从 Basic-Paxos 到 Multi-Paxos，如何 chosen 某个位置的日志记录，接着是两个提高 Paxos 效率的办法：选定 Leader 和减少 Prepare 请求。还讲到了如何让所有的服务器都得到完整的日志，系统如何与客户端交互工作。最后，讲了通过 α 值来处理配置变更。</p>
+<p>Basic Paxos 流程是比较容易理解的，但 Multi-Paxos 却非常棘手，尤其是实际使用的时候，需要一系列的优化，这一系列优化又是不那么容易理解和做到的。这也是后来的分布式系系统纷纷转投 Raft 的原因之一吧，Paxos 的工程化实在令人头疼。</p>
+<p>但不得不说的是，大厂都有自己的 Paxos/Multi-Paxos 实现。Google 的论文 &ldquo;<a href="https://www.cs.utexas.edu/users/lorenzo/corsi/cs380d/papers/paper2-1.pdf">Paxos made live</a>&rdquo; 介绍他们相关的工作，他们的 BigTable、chubby 都是基于文章描述的 Multi-Paxos；微信作为体量巨大的应用，也有开源的 paxos 实现：<a href="https://github.com/Tencent/phxpaxos">phxpaxos</a>；<a href="https://www.zhihu.com/question/52337912">阿里的 Oceanbase 也是使用 Paxos</a>——Paxos 可谓分布式系统的皇冠。</p>
+<p>下篇文章我们还会继续介绍 Paxos 的其它变体：<a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2005-112.pdf">Fast-Paxos</a>。</p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -77,7 +1318,146 @@
       <pubDate>Tue, 29 Sep 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/basic-paxos/</guid>
-      <description>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法</description>
+      <description>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos.
+ 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。
+多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。
+因此，Lamport 觉得论文重新发表的时间到了，&amp;quot;The Part-Time Parliament&amp;quot; 最终在 1998 年公开发表。
+可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——&amp;quot;Paxos Made Simple&amp;quot;，这次论文中一个公式也没有，摘要也只有一句话：
+ The Paxos algorithm, when presented in plain English, is very simple.</description>
+      <content:encoded><![CDATA[<blockquote>
+<p>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos.</p>
+</blockquote>
+<h1 id="引言">引言</h1>
+<p>上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 <a href="http://lamport.azurewebsites.net/pubs/pubs.html#lamport-paxos">Lamport 自己的描述</a>，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。</p>
+<p>多年后，两个在 SRC(<em>Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过</em>)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。</p>
+<p>因此，Lamport 觉得论文重新发表的时间到了，&quot;<a href="https://lamport.azurewebsites.net/pubs/lamport-paxos.pdf">The Part-Time Parliament</a>&quot; 最终在 1998 年公开发表。</p>
+<p>可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——&quot;<a href="https://lamport.azurewebsites.net/pubs/paxos-simple.pdf">Paxos Made Simple</a>&quot;，这次论文中一个公式也没有，摘要也只有一句话：</p>
+<blockquote>
+<p>The Paxos algorithm, when presented in plain English, is very simple.</p>
+</blockquote>
+<p>满满的都是嘲讽！</p>
+<p>然而，可能是表述顺序的原因，这篇论文还是非常难以理解，于是人们写了一系列文章来解释这篇论文（重复造论文），以及在工程上如何实现它。</p>
+<p>其中，个人认为讲解 Paxos 最好的<a href="https://www.youtube.com/watch?v=JEpsBg0AO6o">视频</a>来自于 Raft 算法作者 Diego Ongaro，本文采用 Diego 讲义中的图片来理解 Paxos 算法，也纠正了一个个人认为 Diego 笔误的地方。</p>
+<h1 id="术语">术语</h1>
+<h2 id="基本概念">基本概念</h2>
+<ul>
+<li>Proposal Value：提案的值；</li>
+<li>Proposal Number：提案编号；</li>
+<li>Proposal：提案 = 提案编号 + 提案的值；</li>
+<li>Chosen：批准，也叫选定。一旦某个值被 Chosen，后续 Paxos 都必须用该值进行交互。</li>
+</ul>
+<blockquote>
+<p>注：Proposal 有人叫“提议”有人叫“提案”，此处和维基百科里的翻译保持一致，叫“提案”。</p>
+</blockquote>
+<h2 id="角色">角色</h2>
+<ul>
+<li>Proposer：提案发起者；</li>
+<li>Acceptor：提案接收者；</li>
+<li>Learner：提案学习者；</li>
+</ul>
+<h1 id="问题描述">问题描述</h1>
+<p>为了高可用性，一种常见的设计是用一个 master 节点来写，然后复制到各个 slave 节点。这种解决方法的问题在于，一旦 master 节点故障，整个服务将不可用或者数据不一致。</p>
+<p>为了克服单点写入问题，于是有了多数派（Quorum）写，思路就是写入一半以上的节点。即，如果集群中有 N 个节点，客户端需要写入 W &gt;= N/2 + 1 个节点。不需要主节点。这种方法可以容忍最多 (N-1)/2 个节点故障。</p>
+<p>但是问题依然存在：每个接收者该如何决定是否接受这次请求的值呢？</p>
+<p>如果我们接受第一次收到的值，那么当出现以下情况（Split Votes），则没有出现多数派，没有一个值被 Chosen，算法无法终止，这违反了<strong>活性（liveness）</strong>。</p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/Split-Votes.png" alt="Split Votes"  />
+</p>
+<p>为了解决 Split Votes 问题，我们允许接受多个不同的值，收到的<strong>每一个</strong>请求都接受，这时候新的问题出现了，如下，可能不止一个值被 Chosen，这违反了<strong>安全性（safety）</strong>。</p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/Conflicting-Choices.png" alt="Conflicting Choices"  />
+</p>
+<p>注意，Paxos 强调：</p>
+<blockquote>
+<p>Once a value has been chosen, future proposals must propose the same value.</p>
+</blockquote>
+<p>也就是说，我们讨论的 Basic-Paxos 只会 Chosen 一个值。基于此，就需要一个两阶段（2-phase）协议，对于已经 Chosen 的值，<strong>后续的提案</strong>也要使用相同的值。</p>
+<p>如下图这种情况，S3 直接拒绝 <code>red</code> 值，因为 <code>blue</code> 已经 Chosen，这样就可以保证成功。</p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/chosen.png" alt=""  />
+</p>
+<p>这种方式我们需要对提案进行排序。如果你熟悉分布式系统，应该能想到 &ldquo;<a href="http://lamport.azurewebsites.net/pubs/time-clocks.pdf">Time, Clocks and the Ordering of Events in a Distributed System</a>&rdquo; 这篇论文，我们不能用时间来判断提案的先后顺序。</p>
+<h1 id="proposal-number">Proposal Number</h1>
+<p>一种简单的方式就是每个请求一个唯一的编号，例如：<code>&lt;seq_id, server_id&gt;</code>，为了排序 <code>seq_id</code> 是自增的；同时为了避免崩溃重启，必须能在本地持久化存储。</p>
+<h1 id="paxos">Paxos</h1>
+<p>现在我们终于可以开始描述 Paxos 算法了。</p>
+<p>如上所述，Paxos 是一个两阶段算法。我们把第一个阶段叫做准备（Prepare）阶段，第二个阶段叫做接受（Accept）阶段。分别对应两轮 RPC。</p>
+<h2 id="第一轮-prepare-rpcs">第一轮 Prepare RPCs：</h2>
+<h3 id="请求也叫-prepare-阶段">请求（也叫 Prepare 阶段）：</h3>
+<p>Proposer 选择一个提案编号 n，向<strong>超过半数</strong>的 Acceptor 广播 <code>Prepare(n)</code> 请求。</p>
+<blockquote>
+<p>注：这里讲义的算法流程图是向所有的 Acceptor 发起 <code>Prepare()</code> 请求，鄙人认为应该改为向多数派 Acceptor 发起。参考论文原文： Phase 1. (a) A proposer selects a proposal number n and sends a prepare request with number n to a majority of acceptors.</p>
+</blockquote>
+<p><strong>这里 Prepare（n）不包含提案的值。</strong></p>
+<p>伪代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++">send PREPARE(<span style="color:#f92672">++</span>n)
+</code></pre></div><h3 id="响应也叫-promise-阶段">响应（也叫 PROMISE 阶段）：</h3>
+<p>Acceptor 接收到 <code>Prepare（n)</code> 请求，此时有两种情况：</p>
+<ul>
+<li>如果 n 大于之前接受到的所有 Prepare 请求的编号，则返回 <code>Promise()</code> 响应，并承诺将不会接收编号小于 n 的提案。如果有提案被 Chosen 的话，<code>Promise()</code> 响应还应包含前一次提案编号和对应的值。</li>
+<li>否则（即 n 小于等于 Acceptor 之前收到的最大编号）忽略，但常常会回复一个拒绝响应。</li>
+</ul>
+<p><strong>所以，Acceptor 需要持久化存储 max_n、accepted_N 和 accepted_VALUE。</strong></p>
+<p>伪代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&gt;</span> max_n)
+    max_n <span style="color:#f92672">=</span> n     <span style="color:#75715e">// save highest n we&#39;ve seen so far
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (proposal_accepted <span style="color:#f92672">==</span> true) <span style="color:#75715e">// was a proposal already accepted?
+</span><span style="color:#75715e"></span>        respond: PROMISE(n, accepted_N, accepted_VALUE)
+    <span style="color:#66d9ef">else</span>
+        respond: PROMISE(n)
+<span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">do</span> not respond (or respond with a <span style="color:#e6db74">&#34;fail&#34;</span> message)
+</code></pre></div><h2 id="第二轮-accept-rpcs">第二轮 Accept RPCs：</h2>
+<h3 id="请求也叫-propose-阶段">请求（也叫 PROPOSE 阶段）：</h3>
+<p>当 Proposer 收到<strong>超过半数 Acceptor</strong> 的 <code>Promise()</code> 响应后，Proposer 向<strong>多数派</strong>的 Acceptor 发起 <code>Accept(n, value)</code> 请求并带上提案编号和值。（注：这里讲义的算法流程图是向所有的 Acceptor 发起 <code>Accept()</code> 请求，鄙人认为应该改为向多数派 Acceptor 发起。）</p>
+<p><strong>注意：Proposer 不一定是将 <code>Accept()</code> 请求发给有应答的多数派 Acceptors，可以再选另一个多数派 Acceptors 广播 <code>Accept()</code> 请求。</strong></p>
+<p>**关于值 value 的选择：**如果前面的 Promise 响应有返回 <code>accepted_VALUE</code>，那就使用这个值作为 value。如果没有返回 <code>accepted_VALUE</code>，那可以自由决定提案值 value。</p>
+<p>伪代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++">did I receive PROMISE responses from a majority of acceptors<span style="color:#f92672">?</span>
+<span style="color:#66d9ef">if</span> yes
+    <span style="color:#66d9ef">do</span> any responses contain accepted values (from other proposals)<span style="color:#f92672">?</span>
+    <span style="color:#66d9ef">if</span> yes
+        val <span style="color:#f92672">=</span> accepted_VALUE    <span style="color:#75715e">// value from PROMISE message with the highest accepted ID
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> no
+        val <span style="color:#f92672">=</span> VALUE     <span style="color:#75715e">// we can use our proposed value
+</span><span style="color:#75715e"></span>    send Accept(ID, val) to at least a majority of acceptors
+</code></pre></div><h3 id="响应也叫-accept-阶段">响应（也叫 ACCEPT 阶段）：</h3>
+<p>Acceptor 收到 <code>Accept()</code> 请求，在这期间如果 Acceptor 没有对比 n 更大的编号另行 Promise，则接受该提案。</p>
+<p>伪代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&gt;=</span> max_n) <span style="color:#75715e">// is the n the largest I have seen so far?
+</span><span style="color:#75715e"></span>    proposal_accepted <span style="color:#f92672">=</span> true     <span style="color:#75715e">// note that we accepted a proposal
+</span><span style="color:#75715e"></span>    accepted_N <span style="color:#f92672">=</span> n             <span style="color:#75715e">// save the accepted proposal number
+</span><span style="color:#75715e"></span>    accepted_VALUE <span style="color:#f92672">=</span> VALUE       <span style="color:#75715e">// save the accepted proposal data
+</span><span style="color:#75715e"></span>    respond: Accepted(N, VALUE) to the proposer and all learners
+<span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">do</span> not respond (or respond with a <span style="color:#e6db74">&#34;fail&#34;</span> message)
+</code></pre></div><h2 id="notes">Notes</h2>
+<p>值得注意的是，只有 Proposer 知道某个提案的值是否被 Chosen，如果其它节点想知道某个值是否被 Chosen，那就必须用该值发起一次提案，执行一次 Paxos 算法。</p>
+<h1 id="一些例子">一些例子</h1>
+<h2 id="情况-1提案已-chosen">情况 1：提案已 Chosen</h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-1.jpg" alt="情况 1：提案已 Chosen"  />
+</p>
+<ol>
+<li>S1 收到客户端提案请求 X，于是 S1 向 S1-S3 发起 <code>Prepare(3.1)</code> 请求，<code>PROMISE()</code> 响应返回没有提案被 Chosen</li>
+<li>由于 S1-S3 没有任何提案被 Chosen，S1 继续向 S1-S3 发送 <code>Accept(3.1, X)</code> 请求，提案被成功 Chosen</li>
+<li>在提案被 Chosen 后，S5 收到客户端提案值为 Y 的请求，向 S3-S5 发送 <code>Prepare(4.5)</code> 请求，由于编号 4 &gt; 3 会收到提案值为 X 已经被 Chosen 的 <code>PROMISE()</code> 响应</li>
+<li>于是 S5 <strong>将提案值 Y 替换成 X</strong>，向 S1-S3 发送 <code>Accept(4.5, X)</code> 请求，提案再次被 Chosen</li>
+</ol>
+<h2 id="情况-2提案未-chosenproposer-可见">情况 2：提案未 Chosen，Proposer 可见</h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-2.jpg" alt="情况 2：提案未 Chosen，Proposer 可见"  />
+</p>
+<p>情况 2 和情况 1 类似，在 S3 Chosen 了提案后，S5 收到来自 S3 的 <code>PROMISE()</code> 响应包含了已经 Chosen 的提案值 X，所以同样会将提案值替换成 X，最终所有 Acceptor 对 X 达成共识。</p>
+<p>注意上面的伪代码：<code>do any responses contain accepted values</code>，也就是说只要有一个 Acceptor 在 <code>Promise()</code> 响应中返回了提案值，就要用它来替换提案值。</p>
+<h2 id="情况-3提案未提交proposer-不可见">情况 3：提案未提交，Proposer 不可见</h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-3.jpg" alt="情况 3：提案未提交，Proposer 不可见"  />
+</p>
+<p>情况 3 中，提案只被 S1 Chosen，S3 还未 Chosen 该提案，S3-S5 的 <code>Promise()</code> 响应中没有任何提案信息，所以 S5 自行决定提案值为 Y，发送 <code>Accept(4.5, Y)</code> 请求。</p>
+<p>由于此时 S3 承诺的提案编号 n 变为了 4 且 4 大于 3，所以 S3 不再接受 S1 后续的 <code>Accept(3.1, X)</code> 请求。提案值 X 被阻止，而提案值 Y 最终被 Chosen。</p>
+<h1 id="活锁">活锁</h1>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/livelock.jpg" alt="活锁"  />
+</p>
+<p>如图：当 Proposer 在第一轮 Prepare 发出请求，还没来得及后续的第二轮 Accept 请求，紧接着第二个 Proposer 在第一阶段也发出编号更大的请求。如果这样无穷无尽，Acceptor 始终停留在决定顺序号的过程上，那大家谁也成功不了。</p>
+<p>解决活锁最简单的方式就是引入<strong>随机超时</strong>，这样可以让某个 Proposer 先进行提案，减少一直互相抢占的可能。</p>
+<h1 id="结语">结语</h1>
+<p>Paxos 只从一个或多个值中选择一个值，如果需要重复运行 Paxos 来创建复制状态机，我们称之为 multi-Paxos，但如果每个命令都通过一个Basic Paxos算法实例来达到一致，会产生大量开销。对于 multi-Paxos 可以做一些优化，我们在下篇文章中讨论 Paxos 的变种。</p>
+]]></content:encoded>
     </item>
     
     <item>
@@ -86,7 +1466,181 @@
       <pubDate>Sun, 06 Sep 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/consensus/</guid>
-      <description>混乱的“一致性”问题 Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成</description>
+      <description>混乱的“一致性”问题 Consensus != Consistency
+受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成共识”和“达成一致”是一个意思，但是必须要说明在这里讨论的是 consensus 问题，使用“共识”来表达更清晰一些。而 CAP 定理中的 C 和数据库 ACID 的 C 才是真正的“一致性”—— consistency 问题，尽管这两个 C 讨论的也不是同一个问题，但在这里不展开。
+为了规范和清晰表达，在讨论 consensus 问题的时候统一使用“共识”一词。
+注：在早些的文献中，共识（consensus）也叫做协商（agreement）。
+共识问题 那么共识问题到底是什么呢？举个生活中的例子，小明和小王出去聚会，小明问：“小王，我们喝点什么吧？” 小王：“喝咖啡怎么样？” 小明：“好啊，那就来杯咖啡。”
+在上面的场景中，小王提议喝一杯咖啡，小明表示同意，两人就“喝杯咖啡”这个问题达成共识，并根据这个结果采取行动。这就是生活中的共识。
+在分布式系统中，共识就是系统中的多个节点对某个值达成一致。共识问题可以用数学语言来描述：一个分布式系统包含 n 个进程 {0, 1, 2,&amp;hellip;, n-1}，每个进程都有一个初值，进程之间互相通信，设计一种算法使得尽管出现故障，进程们仍协商出某个不可撤销的最终决定值，且每次执行都满足以下三个性质：
+ 终止性（Termination）：所有正确的进程最终都会认同某一个值。 协定性（Agreement）：所有正确的进程认同的值都是同一个值。 完整性（Integrity），也称作有效性（Validity）：如果正确的进程都提议同一个值，那么所有处于认同状态的正确进程都选择该值。  完整性可以有一些变化，例如，一种较弱的完整性是认定值等于某些正确经常提议的值，而不必是所有进程提议的值。完整性也隐含了，最终被认同的值必定是某个节点提出过的。
+为什么要达成共识？ 我们首先介绍分布式系统达成共识的动机。
+在前文中，我们已经了解到分布式系统的几个主要难题：
+ 网络问题 时钟问题 节点故障问题  第一篇提到共识问题的文献1 来自于 lamport 的 &amp;ldquo;Time, Clocks and the Ordering of Events in a Distributed System2&amp;quot;，尽管它并没有明确的提出共识(consensus)或者协商(agreement)的概念。论文阐述了在分布式系统中，你无法判断事件 A 是否发生在事件 B 之前，除非 A 和 B 存在某种依赖关系。由此还引出了分布式状态机的概念。</description>
+      <content:encoded><![CDATA[<h2 id="混乱的一致性问题">混乱的“一致性”问题</h2>
+<p>Consensus != Consistency</p>
+<p>受翻译影响，网上很多讨论 paxos 或 raft 的博客使用“分布式一致性协议”或者“分布式一致性算法”这样的字眼，虽然在汉语中“达成共识”和“达成一致”是一个意思，但是必须要说明在这里讨论的是 consensus 问题，使用“共识”来表达更清晰一些。而 CAP 定理中的 C 和数据库 ACID 的 C 才是真正的“一致性”—— consistency 问题，尽管这两个 C 讨论的也不是同一个问题，但在这里不展开。</p>
+<p>为了规范和清晰表达，在讨论 consensus 问题的时候统一使用“共识”一词。</p>
+<p><img loading="lazy" src="/media/images/20200906-consensus/timeline.jpg" alt="时间线"  />
+</p>
+<p>注：在早些的文献中，共识（consensus）也叫做协商（agreement）。</p>
+<h2 id="共识问题">共识问题</h2>
+<p>那么共识问题到底是什么呢？举个生活中的例子，小明和小王出去聚会，小明问：“小王，我们喝点什么吧？”
+小王：“喝咖啡怎么样？”
+小明：“好啊，那就来杯咖啡。”</p>
+<p>在上面的场景中，小王<strong>提议</strong>喝一杯咖啡，小明表示<strong>同意</strong>，两人就“喝杯咖啡”这个问题达成共识，并根据这个结果采取行动。这就是生活中的共识。</p>
+<p>在分布式系统中，<strong>共识</strong>就是系统中的多个节点对某个值达成一致。共识问题可以用数学语言来描述：一个分布式系统包含 n 个进程 {0, 1, 2,&hellip;, n-1}，每个进程都有一个初值，进程之间互相通信，设计一种算法使得尽管出现故障，进程们仍协商出某个不可撤销的最终决定值，且每次执行都满足以下三个性质：</p>
+<ul>
+<li>终止性（Termination）：所有正确的进程最终都会认同某一个值。</li>
+<li>协定性（Agreement）：所有正确的进程认同的值都是同一个值。</li>
+<li>完整性（Integrity），也称作有效性（Validity）：如果正确的进程都提议同一个值，那么所有处于认同状态的正确进程都选择该值。</li>
+</ul>
+<p>完整性可以有一些变化，例如，一种较弱的完整性是认定值等于某些正确经常提议的值，而不必是所有进程提议的值。完整性也隐含了，最终被认同的值必定是某个节点提出过的。</p>
+<h2 id="为什么要达成共识">为什么要达成共识？</h2>
+<p>我们首先介绍分布式系统达成共识的动机。</p>
+<p>在<a href="http://tangwz.com/post/intro-distributed-system/">前文</a>中，我们已经了解到分布式系统的几个主要难题：</p>
+<ul>
+<li>网络问题</li>
+<li>时钟问题</li>
+<li>节点故障问题</li>
+</ul>
+<p><a href="http://betathoughts.blogspot.com/2007/06/brief-history-of-consensus-2pc-and.html">第一篇提到共识问题的文献</a><sup id="fnref:1"><a href="#fn:1" class="footnote-ref" role="doc-noteref">1</a></sup> 来自于 lamport 的 &ldquo;<a href="http://research.microsoft.com/users/lamport/pubs/time-clocks.pdf">Time, Clocks and the Ordering of Events in a Distributed System</a><sup id="fnref:2"><a href="#fn:2" class="footnote-ref" role="doc-noteref">2</a></sup>&quot;，尽管它并没有明确的提出共识(consensus)或者协商(agreement)的概念。论文阐述了在分布式系统中，你无法判断事件 A 是否发生在事件 B 之前，除非 A 和 B 存在某种依赖关系。由此还引出了分布式<strong>状态机</strong>的概念。</p>
+<p>在分布式系统中，共识就常常应用在这种多副本状态机（Replicated state machines），状态机在每台节点上都存有副本，这些状态机都有相同的初始状态，每次状态转变、下个状态是什么都由相关进程共同决定，每一台节点的日志的值和顺序都相同。每个状态机在“哪个状态是下一个需要处理的状态”这个问题上达成共识，这就是一个共识问题。</p>
+<p><img loading="lazy" src="/media/images/20200906-consensus/replicated-state-machine.jpg" alt="Raft 算法的状态机"  />
+</p>
+<p>最终，这些节点看起来就像一个单独的、高可靠的状态机。<a href="https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf">Raft 的论文</a><sup id="fnref:3"><a href="#fn:3" class="footnote-ref" role="doc-noteref">3</a></sup>提到，使用状态机我们就能克服上述三个问题：</p>
+<ul>
+<li>满足在所有非拜占庭条件下确保安全（不会返回错误结果），包括网络延迟、分区、丢包、重复和重排序。</li>
+<li>不依赖于时序。</li>
+<li>高可用。只要集群中的大部分节点正常运行，并能够互相通信且可以同客户端通信，这个集群就完全可用。因此，拥有5个节点的集群可以容忍其中的2个节点失败。假使通过停掉某些节点使其失败，稍后它们会从持久化存储的状态进行恢复，并重新加入到集群中。</li>
+</ul>
+<p>不仅如此，达成共识还可以解决分布式系统中的以下经典问题：</p>
+<ul>
+<li>互斥（Mutual exclusion）：哪个进程进入临界区访问资源？分布式锁？</li>
+<li>选主（Leader election）：在单主复制的数据库，需要所有节点就哪个节点是领导者达成共识。如果一些由于网络故障而无法与其他节点通信，可能会产生两个领导者，它们都会接受写入，数据就可能会产生分歧，从而导致数据不一致或丢失。</li>
+<li>原子提交（Atomic commit）：跨多节点或跨多分区事务的数据库中，一个事务可能在某些节点上失败，但在其他节点上成功。如果我们想要维护这种事务的原子性，必须让所有节点对事务的结果达成共识：要么全部提交，要么全部中止/回滚。</li>
+</ul>
+<p>总而言之，在共识的帮助下，分布式系统就可以像单一节点一样工作——所以共识问题是分布式系统最基本的问题。</p>
+<h2 id="系统模型">系统模型</h2>
+<p>在考虑如何达成共识之前，需要考虑分布式系统中有哪些可供选择的计算模型。主要有以下几个方面：</p>
+<p>网络模型：</p>
+<ul>
+<li>同步（Synchronous）：响应时间是在一个固定且已知的有限范围内。</li>
+<li>异步（Asynchronous）：响应时间是无限的。</li>
+</ul>
+<p>故障类型：</p>
+<ul>
+<li>Fail-stop failures：节点突然宕机并停止响应其它节点。</li>
+<li><a href="https://en.wikipedia.org/wiki/Byzantine_fault">Byzantine failures</a>：源自“拜占庭将军问题” ，是指节点响应的数据会产生无法预料的结果，可能会互相矛盾或完全没有意义，这个节点甚至是在“说谎”，例如一个被黑客入侵的节点。</li>
+</ul>
+<p>消息模型：</p>
+<ul>
+<li>口头消息(oral messages)：消息被转述的时候是可能被篡改的。</li>
+<li>签名消息(signed messages)：消息被发出来之后是无法伪造的，只要被篡改就会被发现。</li>
+</ul>
+<p>作为最常见的，我们将分别讨论在同步系统和异步系统中的共识。在同步通信系统中达成共识是可行的(下文将会谈论这点)，但是，在实际的分布式系统中同步通信是不切实际的，我们不知道消息是故障了还是延迟了。异步与同步相比是一种更通用的情况。一个适用于异步系统的算法，也能被用于同步系统，但是反过来并不成立。</p>
+<p><img loading="lazy" src="/media/images/20200906-consensus/asynchronous-system.jpg" alt="异步与同步相比是一种更通用的情况"  />
+</p>
+<p>让我们先从异步的情况开始。</p>
+<h2 id="异步系统中的共识">异步系统中的共识</h2>
+<h3 id="flp-不可能flp-impossibility">FLP 不可能（FLP Impossibility）</h3>
+<p>早在 1985 年，Fischer、Lynch 和 Paterson （FLP）在 &ldquo;<a href="https://groups.csail.mit.edu/tds/papers/Lynch/jacm85.pdf">Impossibility of Distributed Consensus with One Faulty Process</a>&quot;<sup id="fnref:4"><a href="#fn:4" class="footnote-ref" role="doc-noteref">4</a></sup> 证明了：在一个<strong>异步</strong>系统中，即使只有一个进程出现了故障，也没有算法能<strong>保证</strong>达成共识。</p>
+<p><img loading="lazy" src="/media/images/20200906-consensus/flp.jpg" alt="FLP 不可能（FLP Impossibility）"  />
+</p>
+<p>简单来说，因为在一个异步系统中，进程可以随时发出响应，所以没有办法分辨一个进程是速度很慢还是已经崩溃，这不满足终止性（Termination）。详细的证明已经超出本文范围，不在细述<sup id="fnref:5"><a href="#fn:5" class="footnote-ref" role="doc-noteref">5</a></sup>。</p>
+<p>此时，人们意识到一个分布式共识算法需要具有的两个属性：<strong>安全性(safety)<strong>和</strong>活性(liveness)</strong>。安全性意味着所有正确的进程都认同同一个值，活性意味着分布式系统最终会认同某一个值。每个共识算法要么牺牲掉一个属性，要么放宽对网络异步的假设。</p>
+<p>虽然 FLP 不可能定理听着让人望而生畏，但也给后来的人们提供了研究的思路——不再尝试寻找异步通信系统中共识问题完全正确的解法。FLP 不可能是指无法确保达成共识，并不是说如果有一个进程出错，就永远无法达成共识。<strong>这种不可能的结果来自于算法流程中最坏的结果</strong>：</p>
+<ul>
+<li>一个完全异步的系统</li>
+<li>发生了故障</li>
+<li>最后，不可能有一个确定的共识算法。</li>
+</ul>
+<p>针对这些最坏的情况，可以找到一些方法，尽可能去绕过 FLP 不可能，能满足大部分情况下都能达成共识。<a href="https://book.douban.com/subject/21624776/">《分布式系统：概念与设计》</a>提到一般有三种办法：</p>
+<ol>
+<li>故障屏蔽（Fault masking）</li>
+<li>使用故障检测器（Failure detectors）</li>
+<li>使用随机性算法（Non-Determinism）</li>
+</ol>
+<h3 id="1故障屏蔽fault-masking">1、故障屏蔽（Fault masking）</h3>
+<p>既然异步系统中无法证明能够达成共识，我们可以将异步系统转换为同步系统，故障屏蔽就是第一种方法。故障屏蔽假设故障的进程最终会恢复，并找到一种重新加入分布式系统的方式。如果没有收到来自某个进程的消息，就一直等待直到收到预期的消息。</p>
+<p>例如，两阶段提交事务使用持久存储，能够从崩溃中恢复。如果一个进程崩溃，它会被重启（自动重启或由管理员重启）。进程在程序的关键点的持久存储中保留了足够多的信息，以便在崩溃和重启时能够利用这些数据继续工作。换句话说故障程序也能够像正确的进程一样工作，只是它有时候需要很长时间来执行一个恢复处理。</p>
+<p>故障屏蔽被应用在各种系统设计中。</p>
+<h3 id="2使用故障检测器failure-detectors">2、使用故障检测器（Failure detectors）</h3>
+<p>将异步系统转换为同步系统的第二个办法就是引入故障检测器，进程可以认为在超过一定时间没有响应的进程已经故障。一种很常见的故障检测器的实现：超时（timeout）。</p>
+<p>但是，这种办法要求故障检测器是精确的。如果故障器不精确的话，系统可能放弃一个正常的进程；如果超时时间设定得很长，进程就需要等待（并且不能执行任何工作）较长的时间才能得出出错的结论。这个方法甚至有可能导致网络分区。</p>
+<p>解决办法是使用“不完美”的故障检测器。Chanadra 和 Toueg 在 &ldquo;<a href="https://dl.acm.org/doi/10.1145/234533.234549">The weakest failure detector for solving consensus</a><sup id="fnref:6"><a href="#fn:6" class="footnote-ref" role="doc-noteref">6</a></sup>&rdquo; 中分析了一个故障检测器必须拥有的两个属性：</p>
+<ul>
+<li>完全性（Completeness）：每一个故障的进程都会被每一个正确的进程怀疑。</li>
+<li>精确性（Accuracy）：正确的进程没有被怀疑。</li>
+</ul>
+<p>同时，他们还证明了，即使是使用不可靠的故障检测器，只要通信可靠，崩溃的进程不超过 N/2，那么共识问题是可以解决的。我们不需要实现 Strong Completeness 和 Strong Accuracy，只需要一个最终弱故障检测器（eventually weakly failure detector），该检测器具有如下性质：</p>
+<ul>
+<li>最终弱完全性（eventually weakly complete）：每一个错误进程最终常常被一些正确进程怀疑；</li>
+<li>最终弱精确性（eventually weakly accurate）：经过某个时刻后，至少一个正确的进程从来没有被其它正确进程怀疑。</li>
+</ul>
+<p><img loading="lazy" src="/media/images/20200906-consensus/failure-detectors.jpg" alt="故障检测器（Failure detectors）"  />
+</p>
+<p>该论文还证明了，在异步系统中，我们不能只依靠消息来实现一个最终弱故障检测器。但是，实际的故障检测器能够根据观察到的响应时间调节它的超时值。如果一个进程或者一个到检测器的连接很慢，那么超时值就会增加，那么错误地怀疑一个进程的情况将变得很少。从实用目的来看，这样的弱故障检测器与理想的最终弱故障检测器十分接近。</p>
+<h3 id="3使用随机性算法non-determinism">3、使用随机性算法(Non-Determinism)</h3>
+<p>这种解决不可能性的技术是引入一个随机算法，随机算法的输出不仅取决于外部的输入，还取决于执行过程中的随机概率。因此，给定两个完全相同的输入，该算法可能会输出两个不同的值。随机性算法使得“敌人”不能有效地阻碍达成共识。</p>
+<p>和传统选出领导、节点再协作的模式不同，像区块链这类共识是基于哪个节点最快计算出难题来达成的。区块链中每一个新区块都由本轮最快计算出数学难题的节点添加，整个分布式网络持续不断地建设这条有时间戳的区块链，而承载了最多计算量的区块链正是达成了共识的主链（即累积计算难度最大）。</p>
+<p>比特币使用了 PoW（Proof of Work）来维持共识，一些其它加密货币（如 DASH、NEO）使用 PoS（Proof of Stake），还有一些（如 Ripple）使用分布式账本（ledger）。</p>
+<p>但是，这些随机性算法都无法<strong>严格</strong>满足安全性(safety)。攻击者可以囤积巨量算力，从而控制或影响网络的大量正常节点，例如控制 50% 以上网络算力即可以对 PoW 发起<a href="https://en.wikipedia.org/wiki/Sybil_attack">女巫攻击（Sybil Attack）</a>。只不过前提是攻击者需要付出一大笔资金来囤积算力，实际中这种风险性很低，如果有这么强的算力还不如直接挖矿赚取收益。</p>
+<h2 id="同步系统中的共识">同步系统中的共识</h2>
+<p>上述的方法 1 和 2，都想办法让系统比较“同步”。我们熟知的 Paxos 在异步系统中，由于活锁的存在，并没有完全解决共识问题（liveness不满足）。但 Paxos 被广泛应用在各种分布式系统中，就是因为在达成共识之前，系统并没有那么“异步”，还是有极大概率达成共识的。</p>
+<p>Dolev 和 Strong 在 &ldquo;<a href="https://epubs.siam.org/doi/abs/10.1137/0212045?journalCode=smjcat">Authenticated Algorithms for Byzantine Agreement</a><sup id="fnref:7"><a href="#fn:7" class="footnote-ref" role="doc-noteref">7</a></sup>&rdquo; 证明了：<strong>同步系统中，如果 N 个进程中最多有 f 个会出现崩溃故障，那么经过 f + 1 轮消息传递后即可达成共识。</strong></p>
+<p>Fischer 和 Lynch 的 &ldquo;<a href="https://www.sciencedirect.com/science/article/abs/pii/0020019082900333">A lower bound for the time to assure interactive consistency</a><sup id="fnref:8"><a href="#fn:8" class="footnote-ref" role="doc-noteref">8</a></sup>&rdquo; 证明了，<strong>该结论同样适用于拜占庭故障</strong>。</p>
+<p>基于此，大多数实际应用都依赖于同步系统或部分同步系统的假设。</p>
+<h3 id="同步系统中的拜占庭将军问题">同步系统中的拜占庭将军问题</h3>
+<p>Leslie Lamport、Robert Shostak 和 Marshall Pease 在 &ldquo;<a href="http://people.cs.uchicago.edu/~shanlu/teaching/33100_wi15/papers/byz.pdf">拜占庭将军问题（The Byzantine General’s Problem)</a><sup id="fnref:9"><a href="#fn:9" class="footnote-ref" role="doc-noteref">9</a></sup>&rdquo; 论文中讨论了 3 个进程互相发送未签名（口头的）的消息，并证明了只要有一个进程出现故障，就无法满足拜占庭将军的条件。但如果使用签名的消息，那么 3 个将军中有一个出现故障，也能实现拜占庭共识。</p>
+<p>Pease 将这种情况推广到了 N 个进程，也就是在一个有 f 个拜占庭故障节点的系统中，必须总共至少有 3f + 1 个节点才能够达成共识。即 N &gt;= 3f + 1。</p>
+<p>虽然同步系统下拜占庭将军问题的确存在解，但是代价很高，需要 O(N^f+1 ) 的信息交换量，只有在那些安全威胁很严重的地方使用（例如：航天工业）。</p>
+<h4 id="pbft-算法">PBFT 算法</h4>
+<p><a href="http://pmg.csail.mit.edu/papers/osdi99.pdf">PBFT(Practical Byzantine Fault Tolerance)</a> <sup id="fnref:10"><a href="#fn:10" class="footnote-ref" role="doc-noteref">10</a></sup> 算法顾名思义是一种实用的拜占庭容错算法，由 Miguel Castro 和 Barbara Liskov 发表于 1999 年。</p>
+<p>算法的主要细节不再展开。PBFT 也是通过使用同步假设保证活性来绕过 FLP 不可能。PBFT 算法容错数量同样也是 N &gt;= 3f + 1，但只需要  O(n^2 ) 信息交换量，即每台计算机都需要与网络中其他所有计算机通讯。</p>
+<p>虽然 PBFT 已经有了一定的改进，但在大量参与者的场景还是不够实用，不过在拜占庭容错上已经作出很重要的突破，一些重要的思想也被后面的共识算法所借鉴。</p>
+<h2 id="结语">结语</h2>
+<p>本文参考了很多资料文献，对“共识问题”的研究历史做一些基础概述，希望能对你带来一点帮助。</p>
+<p>本文提到的论文，很多直接谈论结果，忽略了其中的数学证明，一是本文只是提纲挈领的讨论共识问题，建立一个知识框架，后续方便往里面填充内容；二是考虑到大部分读者对数学证明过程并不敢兴趣，也不想本文变成一本书那么长。本文也遗漏许多重要算法，后续如有必要会继续补充。</p>
+<p>限于本人能力，恳请读者们对本文存在的错误和不足之处，欢迎留言或私信告诉我。</p>
+<p>下篇我们将会讨论 Paxos 算法。</p>
+<h2 id="reference">Reference</h2>
+<section class="footnotes" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn:1" role="doc-endnote">
+<p>Mark Mc Keown: &ldquo;<a href="http://betathoughts.blogspot.com/2007/06/brief-history-of-consensus-2pc-and.html">A brief history of Consensus, 2PC and Transaction</a>&rdquo;&#160;<a href="#fnref:1" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:2" role="doc-endnote">
+<p>Leslie Lamport: &ldquo;<a href="http://research.microsoft.com/users/lamport/pubs/time-clocks.pdf">Time, Clocks and the Ordering of Events in a Distributed System</a>&rdquo;&#160;<a href="#fnref:2" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:3" role="doc-endnote">
+<p>Diego Ongaro and John Ousterhout: &ldquo;<a href="https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf">In Search of an Understandable Consensus Algorithm</a>&rdquo;&#160;<a href="#fnref:3" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:4" role="doc-endnote">
+<p>Fischer、Lynch and Paterson; &ldquo;<a href="https://groups.csail.mit.edu/tds/papers/Lynch/jacm85.pdf">Impossibility of Distributed Consensus with One Faulty Process</a>&rdquo;&#160;<a href="#fnref:4" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:5" role="doc-endnote">
+<p><a href="http://the-paper-trail.org/blog/a-brief-tour-of-flp-impossibility/">A Brief Tour of FLP Impossibility</a>&#160;<a href="#fnref:5" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:6" role="doc-endnote">
+<p>Chanadra and Toueg: &ldquo;<a href="https://dl.acm.org/doi/10.1145/234533.234549">The weakest failure detector for solving consensus</a>&rdquo;&#160;<a href="#fnref:6" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:7" role="doc-endnote">
+<p><a href="https://epubs.siam.org/doi/abs/10.1137/0212045?journalCode=smjcat">Authenticated Algorithms for Byzantine Agreement</a>&#160;<a href="#fnref:7" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:8" role="doc-endnote">
+<p><a href="https://www.sciencedirect.com/science/article/abs/pii/0020019082900333">A lower bound for the time to assure interactive consistency</a>&#160;<a href="#fnref:8" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:9" role="doc-endnote">
+<p>Leslie Lamport, Robert Shostak, and Marshall Pease: &ldquo;<a href="http://people.cs.uchicago.edu/~shanlu/teaching/33100_wi15/papers/byz.pdf">The Byzantine General’s Problem</a>&rdquo;&#160;<a href="#fnref:9" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:10" role="doc-endnote">
+<p><a href="http://pmg.csail.mit.edu/papers/osdi99.pdf">Practical Byzantine Fault Tolerance</a>&#160;<a href="#fnref:10" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+</ol>
+</section>
+]]></content:encoded>
     </item>
     
     <item>
@@ -95,7 +1649,109 @@
       <pubDate>Tue, 18 Aug 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/intro-distributed-system/</guid>
-      <description>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解</description>
+      <description>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解决大规模分布式应用技术挑战的话题还是能引起广泛的关注。
+回想当初还在大学时候，我喜欢分布式而不是机器学习，主要是因为相比于机器学习大块大块的公式，分布式系统几乎不需要太多数学知识，它是一门理论模型与工程技法并重的学科。作为一个分布式系列的开篇，本文没有高深的论文和复杂的数学，只是分享我对分布式系统的一些认识。
+费林分类法（Flynn&amp;rsquo;s Taxonomy） 费林根据资讯流（information stream）可分成指令（Instruction）和资料（Data）两种，把计算模型分为4类：
+ 单指令流单数据流计算机（SISD）：传统的单核 CPU，没有并行计算。 单指令流多数据流计算机（SIMD）：一个常见的例子就是 GPU 架构。Intel 也有支持 SIMD 的 CPU 架构。 多指令流单数据流计算机（MISD）：用多个指令操作单个数据流，几乎没有意义。 多指令流多数据流计算机（MIMD）：多个独立的 CPU 可以协作解决完全不同的子问题甚至是单一的大问题。涵盖了并行和分布式系统。  MIMD 的程序可以是同步的，也可以是异步的。能力强大的 MIMD 是目前主流的架构类型，超级计算机、并行计算机集群、分布式系统、多处理器计算机和多核计算机都属于这种类型。
+MIMD 可以继续分类：
+ 按内存：具有共享存储器的通常称为多处理器（multiprocessor）；而不具有共享存储器的则称为多计算机(multicomputer)  多处理器系统（multi-processor） 多计算机系统（multi-computer）   连接方式：  总线式（Bus-based） 交换式（Switched）   关联程度：  紧耦合式：消息延迟短、带宽高、系统可用性高，多用于并行系统 松耦合式：消息延迟长、带宽更低、部分组件可能发生故障而不影响其他组件，多用于分布式系统    可以发现，我们要讨论的分布式系统，就是 MIMD 类型架构中 Bus-based multicomputers 和 Switched multicomputers
+什么是分布式系统？ 提到分布式系统我们常常会想到很多大型的系统，比如说搜索引擎，你知道它背后肯定不止一台服务器进行处理，也知道微博、微信和淘宝背后是多个大型数据中心。这种观点当然是正确的。但是分布式系统不一定是大规模的，一个家用的 NAS 服务器也是分布式系统，甚至和你电脑连接的蓝牙键盘也是分布式系统。
+在《分布式系统：概念与设计》一书中，对分布式系统做了如下定义：
+ 分布式系统是其组件分布在连网的计算机上，组件之间通过传递消息进行通信和协调的系统。
+ 通常有以下特点：
+ 不共享内存（只能通过网络通信） 不共享时钟 不共享操作系统  为什么需要分布式系统？ 有时候，并不是仅仅因为觉得便宜而将多台计算机连接在一起。建立分布式系统有真正的好处：</description>
+      <content:encoded><![CDATA[<p>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种科技新闻媒体的“宠儿”，虽然如今头版已被“人工智能”、“机器学习”占据，围绕着解决大规模分布式应用技术挑战的话题还是能引起广泛的关注。</p>
+<p>回想当初还在大学时候，我喜欢分布式而不是机器学习，主要是因为相比于机器学习大块大块的公式，分布式系统几乎不需要太多数学知识，它是一门理论模型与工程技法并重的学科。作为一个分布式系列的开篇，本文没有高深的论文和复杂的数学，只是分享我对分布式系统的一些认识。</p>
+<h1 id="费林分类法flynns-taxonomy">费林分类法（Flynn&rsquo;s Taxonomy）</h1>
+<p>费林根据资讯流（information stream）可分成指令（Instruction）和资料（Data）两种，把计算模型分为4类：</p>
+<ul>
+<li>单指令流单数据流计算机（SISD）：传统的单核 CPU，没有并行计算。</li>
+<li>单指令流多数据流计算机（SIMD）：一个常见的例子就是 GPU 架构。Intel 也有支持 SIMD 的 CPU 架构。</li>
+<li>多指令流单数据流计算机（MISD）：用多个指令操作单个数据流，几乎没有意义。</li>
+<li>多指令流多数据流计算机（MIMD）：多个独立的 CPU 可以协作解决完全不同的子问题甚至是单一的大问题。涵盖了并行和<strong>分布式系统</strong>。</li>
+</ul>
+<p><img loading="lazy" src="/media/images/20200818-intro-distributed-system/Flynn-Taxonomy.jpg" alt="Flynn&amp;rsquo;s Taxonomy"  />
+</p>
+<p>MIMD 的程序可以是同步的，也可以是异步的。能力强大的 MIMD 是目前主流的架构类型，超级计算机、并行计算机集群、分布式系统、多处理器计算机和多核计算机都属于这种类型。</p>
+<p>MIMD 可以继续分类：</p>
+<ul>
+<li>按内存：具有共享存储器的通常称为多处理器（multiprocessor）；而不具有共享存储器的则称为多计算机(multicomputer)
+<ul>
+<li>多处理器系统（multi-processor）</li>
+<li>多计算机系统（multi-computer）</li>
+</ul>
+</li>
+<li>连接方式：
+<ul>
+<li>总线式（Bus-based）</li>
+<li>交换式（Switched）</li>
+</ul>
+</li>
+<li>关联程度：
+<ul>
+<li>紧耦合式：消息延迟短、带宽高、系统可用性高，多用于并行系统</li>
+<li>松耦合式：消息延迟长、带宽更低、部分组件可能发生故障而不影响其他组件，多用于分布式系统</li>
+</ul>
+</li>
+</ul>
+<p><img loading="lazy" src="/media/images/20200818-intro-distributed-system/mimd.jpg" alt="MIMD 分类"  />
+</p>
+<p>可以发现，我们要讨论的分布式系统，就是 MIMD 类型架构中 Bus-based multicomputers 和 Switched multicomputers</p>
+<h1 id="什么是分布式系统">什么是分布式系统？</h1>
+<p>提到分布式系统我们常常会想到很多大型的系统，比如说搜索引擎，你知道它背后肯定不止一台服务器进行处理，也知道微博、微信和淘宝背后是多个大型数据中心。这种观点当然是正确的。但是分布式系统不一定是大规模的，一个家用的 NAS 服务器也是分布式系统，甚至和你电脑连接的蓝牙键盘也是分布式系统。</p>
+<p>在<a href="https://book.douban.com/subject/21624776/">《分布式系统：概念与设计》</a>一书中，对分布式系统做了如下定义：</p>
+<blockquote>
+<p>分布式系统是其组件分布在连网的计算机上，组件之间通过传递消息进行通信和协调的系统。</p>
+</blockquote>
+<p>通常有以下特点：</p>
+<ul>
+<li>不共享内存（只能通过网络通信）</li>
+<li>不共享时钟</li>
+<li>不共享操作系统</li>
+</ul>
+<h1 id="为什么需要分布式系统">为什么需要分布式系统？</h1>
+<p>有时候，并不是仅仅因为觉得便宜而将多台计算机连接在一起。建立分布式系统有真正的好处：</p>
+<ul>
+<li>社交：让地理位置分散的用户可以一起工作一起玩，这样的例子很多：分布式文档系统、多人游戏、视频会议和社交网络等；</li>
+<li>高可用：一小部分机器宕机了，整个系统仍然可以正常工作；</li>
+<li>扩展性：当业务扩张、用户数变多或历史数据变得越来越大时，可以直接往现有分布式系统中添加机器；</li>
+<li>远程服务：我们的电脑和手机无法放下日益增长的数据，像 Dropbox、iCloud 等软件为我们提供远程服务；</li>
+<li>IoT：智能家居、自动售卖机、智能收费站和未来更多的的 IoT 设备都会涉及到分布式系统的应用。</li>
+<li>性价比：价格当然也是其中的原因。</li>
+</ul>
+<h1 id="分布式系统的挑战">分布式系统的挑战</h1>
+<p>分布式系统虽好，但系统的复杂性同时会引入很多棘手的问题，下面重点关注三个问题：</p>
+<h2 id="网络延迟问题">网络延迟问题</h2>
+<p>分布式系统中的多个节点以网络进行通信，但是网络并不保证什么时候到达以及是否一定到达。<a href="https://book.douban.com/subject/30329536/">很多事情可能会出错</a>：</p>
+<ul>
+<li>请求可能已经丢失（可能有人拔掉了网线）。</li>
+<li>请求可能正在排队，稍后将交付（也许网络或收件人超载）。</li>
+<li>远程节点可能已经失效（可能是崩溃或关机）。</li>
+<li>远程节点可能暂时停止了响应（可能会遇到长时间的垃圾回收暂停；参阅“暂停进程”），但稍后会再次响应。</li>
+<li>远程节点可能已经处理了请求，但是网络上的响应已经丢失（可能是网络交换机配置错误）。</li>
+<li>远程节点可能已经处理了请求，但是响应已经被延迟，并且稍后将被传递（可能是网络或者你自己的机器过载）。</li>
+</ul>
+<h2 id="时钟问题">时钟问题</h2>
+<ul>
+<li>​消息通过网络从一台机器传送到另一台机器需要时间，但由于网络中的可变延迟，我们不知道到底花了多少时间。这个事实有时很难确定在涉及多台机器时发生事情的顺序。</li>
+<li>网络上的每台机器都有自己的时钟，可能比其他机器稍快或更慢。</li>
+</ul>
+<h2 id="部分失效">部分失效</h2>
+<p><img loading="lazy" src="/media/images/20200818-intro-distributed-system/partial-failure.jpg" alt="部分失效"  />
+</p>
+<p>单机系统上的程序要么工作，要么出错。</p>
+<p>在分布式系统中，系统的某些部分可能会以某种不可预知的方式宕机。这被称为部分失效（partial failure）。</p>
+<p>难点在于部分失效是不确定的：如果你试图做任何涉及多个节点和网络的事情，它有时可能会工作，有时会出现不可预知的失败。正如我们将要看到的，你甚至不知道是否成功了，因为消息通过网络传播的时间也是不确定的！</p>
+<p><a href="https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/">这种不确定性和部分失效的可能性，使得分布式系统难以琢磨和调试。</a></p>
+<h1 id="结语">结语</h1>
+<p>分布式系统主要研究三大方向：</p>
+<ul>
+<li>分布式存储系统</li>
+<li>分布式计算系统</li>
+<li>分布式调度系统</li>
+</ul>
+<p>这些方向都有一些特定的算法，但是，分布式共识问题试图探讨分布式系统中最基本的问题——如何让分布式系统中的节点达成共识？到底什么是共识？下一篇，我们将深入讨论这个问题。</p>
+]]></content:encoded>
     </item>
     
   </channel>

@@ -1,194 +1,294 @@
 <!DOCTYPE html>
-<html lang="zh-cn">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-  <title>理解 Paxos（含伪代码） - Tangwz - 我想要说的，前人们都说过了</title>
-  <meta name="renderer" content="webkit" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<html lang="en" dir="auto">
 
-<meta http-equiv="Cache-Control" content="no-transform" />
-<meta http-equiv="Cache-Control" content="no-siteapp" />
-
-<meta name="theme-color" content="#f8f5ec" />
-<meta name="msapplication-navbutton-color" content="#f8f5ec">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
-
-
-<meta name="author" content="Tangwz" /><meta name="description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
-
-
-
-
-
-
-<meta name="generator" content="Hugo 0.80.0 with theme even" />
-
-
+<head><meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>理解 Paxos（含伪代码） | 多颗糖</title>
+<meta name="keywords" content="分布式" />
+<meta name="description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos.
+ 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。
+多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。
+因此，Lamport 觉得论文重新发表的时间到了，&quot;The Part-Time Parliament&quot; 最终在 1998 年公开发表。
+可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——&quot;Paxos Made Simple&quot;，这次论文中一个公式也没有，摘要也只有一句话：
+ The Paxos algorithm, when presented in plain English, is very simple.">
+<meta name="author" content="多颗糖">
 <link rel="canonical" href="https://tangwz.com/post/basic-paxos/" />
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="manifest" href="/manifest.json">
-<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+<link crossorigin="anonymous" href="/assets/css/stylesheet.min.c88963fe2d79462000fd0fb1b3737783c32855d340583e4523343f8735c787f0.css" integrity="sha256-yIlj/i15RiAA/Q&#43;xs3N3g8MoVdNAWD5FIzQ/hzXHh/A=" rel="preload stylesheet" as="style">
+<script defer crossorigin="anonymous" src="/assets/js/highlight.min.7680afc38aa6b15ddf158a4f3780b7b1f7dde7e91d26f073e6229bb7a0793c92.js" integrity="sha256-doCvw4qmsV3fFYpPN4C3sffd5&#43;kdJvBz5iKbt6B5PJI="
+    onload="hljs.initHighlightingOnLoad();"></script>
+<link rel="icon" href="https://tangwz.com/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="https://tangwz.com/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://tangwz.com/favicon-32x32.png">
+<link rel="apple-touch-icon" href="https://tangwz.com/apple-touch-icon.png">
+<link rel="mask-icon" href="https://tangwz.com/safari-pinned-tab.svg">
+<meta name="theme-color" content="#2e2e33">
+<meta name="msapplication-TileColor" content="#2e2e33">
+<meta name="generator" content="Hugo 0.89.4" />
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
 
+    </style>
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
 
+            .list {
+                background: var(--theme);
+            }
 
-<link href="/sass/main.min.651e6917abb0239242daa570c2bec9867267bbcd83646da5a850afe573347b44.css" rel="stylesheet">
-<link href="/lib/fancybox/jquery.fancybox-3.1.20.min.css" rel="stylesheet">
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
 
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
 
-<meta property="og:title" content="理解 Paxos（含伪代码）" />
-<meta property="og:description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法" />
+    </style>
+</noscript>
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-72128068-1', 'auto');
+	
+	ga('send', 'pageview');
+}
+</script><meta property="og:title" content="理解 Paxos（含伪代码）" />
+<meta property="og:description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos.
+ 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。
+多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。
+因此，Lamport 觉得论文重新发表的时间到了，&quot;The Part-Time Parliament&quot; 最终在 1998 年公开发表。
+可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——&quot;Paxos Made Simple&quot;，这次论文中一个公式也没有，摘要也只有一句话：
+ The Paxos algorithm, when presented in plain English, is very simple." />
 <meta property="og:type" content="article" />
-<meta property="og:url" content="https://tangwz.com/post/basic-paxos/" />
-<meta property="article:published_time" content="2020-09-29T00:00:00+00:00" />
-<meta property="article:modified_time" content="2020-09-29T00:00:00+00:00" />
-<meta itemprop="name" content="理解 Paxos（含伪代码）">
-<meta itemprop="description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法">
-<meta itemprop="datePublished" content="2020-09-29T00:00:00+00:00" />
-<meta itemprop="dateModified" content="2020-09-29T00:00:00+00:00" />
-<meta itemprop="wordCount" content="3236">
+<meta property="og:url" content="https://tangwz.com/post/basic-paxos/" /><meta property="og:image" content="https://tangwz.com/"/><meta property="article:section" content="post" />
+<meta property="article:published_time" content="2020-09-29T00:00:00&#43;00:00" />
+<meta property="article:modified_time" content="2020-09-29T00:00:00&#43;00:00" />
 
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://tangwz.com/"/>
 
-
-<meta itemprop="keywords" content="分布式," />
-<meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="理解 Paxos（含伪代码）"/>
-<meta name="twitter:description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos. 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法"/>
+<meta name="twitter:description" content="Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos.
+ 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。
+多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。
+因此，Lamport 觉得论文重新发表的时间到了，&quot;The Part-Time Parliament&quot; 最终在 1998 年公开发表。
+可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——&quot;Paxos Made Simple&quot;，这次论文中一个公式也没有，摘要也只有一句话：
+ The Paxos algorithm, when presented in plain English, is very simple."/>
 
-<!--[if lte IE 9]>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
-<![endif]-->
 
-<!--[if lt IE 9]>
-  <script src="https://cdn.jsdelivr.net/npm/html5shiv@3.7.3/dist/html5shiv.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/respond.js@1.4.2/dest/respond.min.js"></script>
-<![endif]-->
-
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position":  1 ,
+      "name": "Posts",
+      "item": "https://tangwz.com/post/"
+    }, 
+    {
+      "@type": "ListItem",
+      "position":  2 ,
+      "name": "理解 Paxos（含伪代码）",
+      "item": "https://tangwz.com/post/basic-paxos/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "理解 Paxos（含伪代码）",
+  "name": "理解 Paxos（含伪代码）",
+  "description": "Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that\u0026rsquo;s Paxos.\n 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。\n多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。\n因此，Lamport 觉得论文重新发表的时间到了，\u0026quot;The Part-Time Parliament\u0026quot; 最终在 1998 年公开发表。\n可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——\u0026quot;Paxos Made Simple\u0026quot;，这次论文中一个公式也没有，摘要也只有一句话：\n The Paxos algorithm, when presented in plain English, is very simple.",
+  "keywords": [
+    "分布式"
+  ],
+  "articleBody": " Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that’s Paxos.\n 引言 上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 Lamport 自己的描述，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。\n多年后，两个在 SRC(Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。\n因此，Lamport 觉得论文重新发表的时间到了，\"The Part-Time Parliament\" 最终在 1998 年公开发表。\n可是很多人抱怨这篇论文根本看不懂啊，人们只记住了那个奇怪的故事，而不是 Paxos 算法。Lamport 走到哪都要被人抱怨一通。于是他忍无可忍，2001 年重新发表了一篇关于 Paxos 的论文——\"Paxos Made Simple\"，这次论文中一个公式也没有，摘要也只有一句话：\n The Paxos algorithm, when presented in plain English, is very simple.\n 满满的都是嘲讽！\n然而，可能是表述顺序的原因，这篇论文还是非常难以理解，于是人们写了一系列文章来解释这篇论文（重复造论文），以及在工程上如何实现它。\n其中，个人认为讲解 Paxos 最好的视频来自于 Raft 算法作者 Diego Ongaro，本文采用 Diego 讲义中的图片来理解 Paxos 算法，也纠正了一个个人认为 Diego 笔误的地方。\n术语 基本概念  Proposal Value：提案的值； Proposal Number：提案编号； Proposal：提案 = 提案编号 + 提案的值； Chosen：批准，也叫选定。一旦某个值被 Chosen，后续 Paxos 都必须用该值进行交互。   注：Proposal 有人叫“提议”有人叫“提案”，此处和维基百科里的翻译保持一致，叫“提案”。\n 角色  Proposer：提案发起者； Acceptor：提案接收者； Learner：提案学习者；  问题描述 为了高可用性，一种常见的设计是用一个 master 节点来写，然后复制到各个 slave 节点。这种解决方法的问题在于，一旦 master 节点故障，整个服务将不可用或者数据不一致。\n为了克服单点写入问题，于是有了多数派（Quorum）写，思路就是写入一半以上的节点。即，如果集群中有 N 个节点，客户端需要写入 W = N/2 + 1 个节点。不需要主节点。这种方法可以容忍最多 (N-1)/2 个节点故障。\n但是问题依然存在：每个接收者该如何决定是否接受这次请求的值呢？\n如果我们接受第一次收到的值，那么当出现以下情况（Split Votes），则没有出现多数派，没有一个值被 Chosen，算法无法终止，这违反了活性（liveness）。\n为了解决 Split Votes 问题，我们允许接受多个不同的值，收到的每一个请求都接受，这时候新的问题出现了，如下，可能不止一个值被 Chosen，这违反了安全性（safety）。\n注意，Paxos 强调：\n Once a value has been chosen, future proposals must propose the same value.\n 也就是说，我们讨论的 Basic-Paxos 只会 Chosen 一个值。基于此，就需要一个两阶段（2-phase）协议，对于已经 Chosen 的值，后续的提案也要使用相同的值。\n如下图这种情况，S3 直接拒绝 red 值，因为 blue 已经 Chosen，这样就可以保证成功。\n这种方式我们需要对提案进行排序。如果你熟悉分布式系统，应该能想到 “Time, Clocks and the Ordering of Events in a Distributed System” 这篇论文，我们不能用时间来判断提案的先后顺序。\nProposal Number 一种简单的方式就是每个请求一个唯一的编号，例如：，为了排序 seq_id 是自增的；同时为了避免崩溃重启，必须能在本地持久化存储。\nPaxos 现在我们终于可以开始描述 Paxos 算法了。\n如上所述，Paxos 是一个两阶段算法。我们把第一个阶段叫做准备（Prepare）阶段，第二个阶段叫做接受（Accept）阶段。分别对应两轮 RPC。\n第一轮 Prepare RPCs： 请求（也叫 Prepare 阶段）： Proposer 选择一个提案编号 n，向超过半数的 Acceptor 广播 Prepare(n) 请求。\n 注：这里讲义的算法流程图是向所有的 Acceptor 发起 Prepare() 请求，鄙人认为应该改为向多数派 Acceptor 发起。参考论文原文： Phase 1. (a) A proposer selects a proposal number n and sends a prepare request with number n to a majority of acceptors.\n 这里 Prepare（n）不包含提案的值。\n伪代码：\nsend PREPARE(++n) 响应（也叫 PROMISE 阶段）： Acceptor 接收到 Prepare（n) 请求，此时有两种情况：\n 如果 n 大于之前接受到的所有 Prepare 请求的编号，则返回 Promise() 响应，并承诺将不会接收编号小于 n 的提案。如果有提案被 Chosen 的话，Promise() 响应还应包含前一次提案编号和对应的值。 否则（即 n 小于等于 Acceptor 之前收到的最大编号）忽略，但常常会回复一个拒绝响应。  所以，Acceptor 需要持久化存储 max_n、accepted_N 和 accepted_VALUE。\n伪代码：\nif (n  max_n) max_n = n // save highest n we've seen so far  if (proposal_accepted == true) // was a proposal already accepted?  respond: PROMISE(n, accepted_N, accepted_VALUE) else respond: PROMISE(n) else do not respond (or respond with a \"fail\" message) 第二轮 Accept RPCs： 请求（也叫 PROPOSE 阶段）： 当 Proposer 收到超过半数 Acceptor 的 Promise() 响应后，Proposer 向多数派的 Acceptor 发起 Accept(n, value) 请求并带上提案编号和值。（注：这里讲义的算法流程图是向所有的 Acceptor 发起 Accept() 请求，鄙人认为应该改为向多数派 Acceptor 发起。）\n注意：Proposer 不一定是将 Accept() 请求发给有应答的多数派 Acceptors，可以再选另一个多数派 Acceptors 广播 Accept() 请求。\n**关于值 value 的选择：**如果前面的 Promise 响应有返回 accepted_VALUE，那就使用这个值作为 value。如果没有返回 accepted_VALUE，那可以自由决定提案值 value。\n伪代码：\ndid I receive PROMISE responses from a majority of acceptors? if yes do any responses contain accepted values (from other proposals)? if yes val = accepted_VALUE // value from PROMISE message with the highest accepted ID  if no val = VALUE // we can use our proposed value  send Accept(ID, val) to at least a majority of acceptors 响应（也叫 ACCEPT 阶段）： Acceptor 收到 Accept() 请求，在这期间如果 Acceptor 没有对比 n 更大的编号另行 Promise，则接受该提案。\n伪代码：\nif (n = max_n) // is the n the largest I have seen so far?  proposal_accepted = true // note that we accepted a proposal  accepted_N = n // save the accepted proposal number  accepted_VALUE = VALUE // save the accepted proposal data  respond: Accepted(N, VALUE) to the proposer and all learners else do not respond (or respond with a \"fail\" message) Notes 值得注意的是，只有 Proposer 知道某个提案的值是否被 Chosen，如果其它节点想知道某个值是否被 Chosen，那就必须用该值发起一次提案，执行一次 Paxos 算法。\n一些例子 情况 1：提案已 Chosen  S1 收到客户端提案请求 X，于是 S1 向 S1-S3 发起 Prepare(3.1) 请求，PROMISE() 响应返回没有提案被 Chosen 由于 S1-S3 没有任何提案被 Chosen，S1 继续向 S1-S3 发送 Accept(3.1, X) 请求，提案被成功 Chosen 在提案被 Chosen 后，S5 收到客户端提案值为 Y 的请求，向 S3-S5 发送 Prepare(4.5) 请求，由于编号 4  3 会收到提案值为 X 已经被 Chosen 的 PROMISE() 响应 于是 S5 将提案值 Y 替换成 X，向 S1-S3 发送 Accept(4.5, X) 请求，提案再次被 Chosen  情况 2：提案未 Chosen，Proposer 可见 情况 2 和情况 1 类似，在 S3 Chosen 了提案后，S5 收到来自 S3 的 PROMISE() 响应包含了已经 Chosen 的提案值 X，所以同样会将提案值替换成 X，最终所有 Acceptor 对 X 达成共识。\n注意上面的伪代码：do any responses contain accepted values，也就是说只要有一个 Acceptor 在 Promise() 响应中返回了提案值，就要用它来替换提案值。\n情况 3：提案未提交，Proposer 不可见 情况 3 中，提案只被 S1 Chosen，S3 还未 Chosen 该提案，S3-S5 的 Promise() 响应中没有任何提案信息，所以 S5 自行决定提案值为 Y，发送 Accept(4.5, Y) 请求。\n由于此时 S3 承诺的提案编号 n 变为了 4 且 4 大于 3，所以 S3 不再接受 S1 后续的 Accept(3.1, X) 请求。提案值 X 被阻止，而提案值 Y 最终被 Chosen。\n活锁 如图：当 Proposer 在第一轮 Prepare 发出请求，还没来得及后续的第二轮 Accept 请求，紧接着第二个 Proposer 在第一阶段也发出编号更大的请求。如果这样无穷无尽，Acceptor 始终停留在决定顺序号的过程上，那大家谁也成功不了。\n解决活锁最简单的方式就是引入随机超时，这样可以让某个 Proposer 先进行提案，减少一直互相抢占的可能。\n结语 Paxos 只从一个或多个值中选择一个值，如果需要重复运行 Paxos 来创建复制状态机，我们称之为 multi-Paxos，但如果每个命令都通过一个Basic Paxos算法实例来达到一致，会产生大量开销。对于 multi-Paxos 可以做一些优化，我们在下篇文章中讨论 Paxos 的变种。\n",
+  "wordCount" : "651",
+  "inLanguage": "en",
+  "datePublished": "2020-09-29T00:00:00Z",
+  "dateModified": "2020-09-29T00:00:00Z",
+  "author":{
+    "@type": "Person",
+    "name": "多颗糖"
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://tangwz.com/post/basic-paxos/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "多颗糖",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://tangwz.com/favicon.ico"
+    }
+  }
+}
+</script>
 </head>
-<body>
-  <div id="mobile-navbar" class="mobile-navbar">
-  <div class="mobile-header-logo">
-    <a href="/" class="logo">Tangwz 的博客</a>
-  </div>
-  <div class="mobile-navbar-icon">
-    <span></span>
-    <span></span>
-    <span></span>
-  </div>
+
+<body class="" id="top">
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https://tangwz.com/" accesskey="h" title="多颗糖 (Alt + H)">多颗糖</a>
+            <span class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+            </span>
+        </div>
+        <ul id="menu">
+            <li>
+                <a href="https://tangwz.com/page/about/" title="关于">
+                    <span>关于</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://tangwz.com/page/archives/" title="归档">
+                    <span>归档</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://tangwz.com/page/search/" title="搜索">
+                    <span>搜索</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</header>
+<main class="main">
+
+<article class="post-single">
+  <header class="post-header">
+    <div class="breadcrumbs"><a href="https://tangwz.com/">Home</a>&nbsp;»&nbsp;<a href="https://tangwz.com/post/">Posts</a></div>
+    <h1 class="post-title">
+      理解 Paxos（含伪代码）
+    </h1>
+    <div class="post-meta"><span title='2020-09-29 00:00:00 +0000 UTC'>September 29, 2020</span>&nbsp;·&nbsp;4 min&nbsp;·&nbsp;多颗糖&nbsp;|&nbsp;<a href="https://github.com/adityatelange/hugo-PaperMod/tree/exampleSite/content/post/basic-paxos.md" rel="noopener noreferrer" target="_blank">Suggest Changes</a>
+
 </div>
-<nav id="mobile-menu" class="mobile-menu slideout-menu">
-  <ul class="mobile-menu-list">
-    <a href="/">
-        <li class="mobile-menu-item">主页</li>
-      </a><a href="/post/">
-        <li class="mobile-menu-item">归档</li>
-      </a><a href="/tags/">
-        <li class="mobile-menu-item">标签</li>
-      </a><a href="/categories/">
-        <li class="mobile-menu-item">分类</li>
-      </a><a href="/about">
-        <li class="mobile-menu-item">关于</li>
-      </a><a href="/index.xml">
-        <li class="mobile-menu-item">RSS</li>
-      </a>
-  </ul>
-</nav>
-  <div class="container" id="mobile-panel">
-    <header id="header" class="header">
-        <div class="logo-wrapper">
-  <a href="/" class="logo">Tangwz 的博客</a>
+  </header> <div class="toc">
+    <details >
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner"><ul>
+                <li>
+                    <a href="#%e5%bc%95%e8%a8%80" aria-label="引言">引言</a></li>
+                <li>
+                    <a href="#%e6%9c%af%e8%af%ad" aria-label="术语">术语</a><ul>
+                        
+                <li>
+                    <a href="#%e5%9f%ba%e6%9c%ac%e6%a6%82%e5%bf%b5" aria-label="基本概念">基本概念</a></li>
+                <li>
+                    <a href="#%e8%a7%92%e8%89%b2" aria-label="角色">角色</a></li></ul>
+                </li>
+                <li>
+                    <a href="#%e9%97%ae%e9%a2%98%e6%8f%8f%e8%bf%b0" aria-label="问题描述">问题描述</a></li>
+                <li>
+                    <a href="#proposal-number" aria-label="Proposal Number">Proposal Number</a></li>
+                <li>
+                    <a href="#paxos" aria-label="Paxos">Paxos</a><ul>
+                        
+                <li>
+                    <a href="#%e7%ac%ac%e4%b8%80%e8%bd%ae-prepare-rpcs" aria-label="第一轮 Prepare RPCs：">第一轮 Prepare RPCs：</a><ul>
+                        
+                <li>
+                    <a href="#%e8%af%b7%e6%b1%82%e4%b9%9f%e5%8f%ab-prepare-%e9%98%b6%e6%ae%b5" aria-label="请求（也叫 Prepare 阶段）：">请求（也叫 Prepare 阶段）：</a></li>
+                <li>
+                    <a href="#%e5%93%8d%e5%ba%94%e4%b9%9f%e5%8f%ab-promise-%e9%98%b6%e6%ae%b5" aria-label="响应（也叫 PROMISE 阶段）：">响应（也叫 PROMISE 阶段）：</a></li></ul>
+                </li>
+                <li>
+                    <a href="#%e7%ac%ac%e4%ba%8c%e8%bd%ae-accept-rpcs" aria-label="第二轮 Accept RPCs：">第二轮 Accept RPCs：</a><ul>
+                        
+                <li>
+                    <a href="#%e8%af%b7%e6%b1%82%e4%b9%9f%e5%8f%ab-propose-%e9%98%b6%e6%ae%b5" aria-label="请求（也叫 PROPOSE 阶段）：">请求（也叫 PROPOSE 阶段）：</a></li>
+                <li>
+                    <a href="#%e5%93%8d%e5%ba%94%e4%b9%9f%e5%8f%ab-accept-%e9%98%b6%e6%ae%b5" aria-label="响应（也叫 ACCEPT 阶段）：">响应（也叫 ACCEPT 阶段）：</a></li></ul>
+                </li>
+                <li>
+                    <a href="#notes" aria-label="Notes">Notes</a></li></ul>
+                </li>
+                <li>
+                    <a href="#%e4%b8%80%e4%ba%9b%e4%be%8b%e5%ad%90" aria-label="一些例子">一些例子</a><ul>
+                        
+                <li>
+                    <a href="#%e6%83%85%e5%86%b5-1%e6%8f%90%e6%a1%88%e5%b7%b2-chosen" aria-label="情况 1：提案已 Chosen">情况 1：提案已 Chosen</a></li>
+                <li>
+                    <a href="#%e6%83%85%e5%86%b5-2%e6%8f%90%e6%a1%88%e6%9c%aa-chosenproposer-%e5%8f%af%e8%a7%81" aria-label="情况 2：提案未 Chosen，Proposer 可见">情况 2：提案未 Chosen，Proposer 可见</a></li>
+                <li>
+                    <a href="#%e6%83%85%e5%86%b5-3%e6%8f%90%e6%a1%88%e6%9c%aa%e6%8f%90%e4%ba%a4proposer-%e4%b8%8d%e5%8f%af%e8%a7%81" aria-label="情况 3：提案未提交，Proposer 不可见">情况 3：提案未提交，Proposer 不可见</a></li></ul>
+                </li>
+                <li>
+                    <a href="#%e6%b4%bb%e9%94%81" aria-label="活锁">活锁</a></li>
+                <li>
+                    <a href="#%e7%bb%93%e8%af%ad" aria-label="结语">结语</a>
+                </li>
+            </ul>
+        </div>
+    </details>
 </div>
 
-<nav class="site-navbar">
-  <ul id="menu" class="menu">
-    <li class="menu-item">
-        <a class="menu-item-link" href="/">主页</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/post/">归档</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/tags/">标签</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/categories/">分类</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/about">关于</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/index.xml">RSS</a>
-      </li>
-  </ul>
-</nav>
-    </header>
-
-    <main id="main" class="main">
-      <div class="content-wrapper">
-        <div id="content" class="content">
-          <article class="post">
-    
-    <header class="post-header">
-      <h1 class="post-title">理解 Paxos（含伪代码）</h1>
-
-      <div class="post-meta">
-        <span class="post-time"> 2020-09-29 </span>
-        <div class="post-category">
-            <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
-            </div>
-          <span class="more-meta"> 约 3236 字 </span>
-          <span class="more-meta"> 预计阅读 7 分钟 </span>
-        
-      </div>
-    </header>
-
-    <div class="post-toc" id="post-toc">
-  <h2 class="post-toc-title">文章目录</h2>
-  <div class="post-toc-content always-active">
-    <nav id="TableOfContents">
-  <ul>
-    <li><a href="#引言">引言</a></li>
-    <li><a href="#术语">术语</a>
-      <ul>
-        <li><a href="#基本概念">基本概念</a></li>
-        <li><a href="#角色">角色</a></li>
-      </ul>
-    </li>
-    <li><a href="#问题描述">问题描述</a></li>
-    <li><a href="#proposal-number">Proposal Number</a></li>
-    <li><a href="#paxos">Paxos</a>
-      <ul>
-        <li><a href="#第一轮-prepare-rpcs">第一轮 Prepare RPCs：</a>
-          <ul>
-            <li><a href="#请求也叫-prepare-阶段">请求（也叫 Prepare 阶段）：</a></li>
-            <li><a href="#响应也叫-promise-阶段">响应（也叫 PROMISE 阶段）：</a></li>
-          </ul>
-        </li>
-        <li><a href="#第二轮-accept-rpcs">第二轮 Accept RPCs：</a>
-          <ul>
-            <li><a href="#请求也叫-propose-阶段">请求（也叫 PROPOSE 阶段）：</a></li>
-            <li><a href="#响应也叫-accept-阶段">响应（也叫 ACCEPT 阶段）：</a></li>
-          </ul>
-        </li>
-        <li><a href="#notes">Notes</a></li>
-      </ul>
-    </li>
-    <li><a href="#一些例子">一些例子</a>
-      <ul>
-        <li><a href="#情况-1提案已-chosen">情况 1：提案已 Chosen</a></li>
-        <li><a href="#情况-2提案未-chosenproposer-可见">情况 2：提案未 Chosen，Proposer 可见</a></li>
-        <li><a href="#情况-3提案未提交proposer-不可见">情况 3：提案未提交，Proposer 不可见</a></li>
-      </ul>
-    </li>
-    <li><a href="#活锁">活锁</a></li>
-    <li><a href="#结语">结语</a></li>
-  </ul>
-</nav>
-  </div>
-</div>
-    <div class="post-content">
-      <blockquote>
+  <div class="post-content"><blockquote>
 <p>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&rsquo;s Paxos.</p>
 </blockquote>
-<h1 id="引言">引言</h1>
+<h1 id="引言">引言<a hidden class="anchor" aria-hidden="true" href="#引言">#</a></h1>
 <p>上文我们已经详细的阐述了共识问题并介绍了一些共识算法，其中 Paxos 算法是 Leslie Lamport 于 1990 年提出的共识算法，不幸的是采用希腊民主议会的比喻很明显失败了，Lamport 像写小说一样，把一个复杂的数学问题弄成了一篇带有考古色彩的历史小说。根据 <a href="http://lamport.azurewebsites.net/pubs/pubs.html#lamport-paxos">Lamport 自己的描述</a>，三个审阅人都认为该论文尽管并不重要但还有些意思，只是应该把其中所有 Paxos 相关的故事背景删掉才能发表。Lamport 对这些缺乏幽默感的人感到生气，他不打算对论文做任何修改，论文也没有得以发表。</p>
 <p>多年后，两个在 SRC(<em>Systems Research Center，DEC 于 1984 年创立，Lamport 也曾在此工作过</em>)工作的人需要为他们正在构建的分布式系统寻找一些合适算法，而 Paxos 恰恰提供了他们想要的。Lamport 就将论文发给他们，他们也没觉得该论文有什么问题。</p>
 <p>因此，Lamport 觉得论文重新发表的时间到了，&quot;<a href="https://lamport.azurewebsites.net/pubs/lamport-paxos.pdf">The Part-Time Parliament</a>&quot; 最终在 1998 年公开发表。</p>
@@ -199,8 +299,8 @@
 <p>满满的都是嘲讽！</p>
 <p>然而，可能是表述顺序的原因，这篇论文还是非常难以理解，于是人们写了一系列文章来解释这篇论文（重复造论文），以及在工程上如何实现它。</p>
 <p>其中，个人认为讲解 Paxos 最好的<a href="https://www.youtube.com/watch?v=JEpsBg0AO6o">视频</a>来自于 Raft 算法作者 Diego Ongaro，本文采用 Diego 讲义中的图片来理解 Paxos 算法，也纠正了一个个人认为 Diego 笔误的地方。</p>
-<h1 id="术语">术语</h1>
-<h2 id="基本概念">基本概念</h2>
+<h1 id="术语">术语<a hidden class="anchor" aria-hidden="true" href="#术语">#</a></h1>
+<h2 id="基本概念">基本概念<a hidden class="anchor" aria-hidden="true" href="#基本概念">#</a></h2>
 <ul>
 <li>Proposal Value：提案的值；</li>
 <li>Proposal Number：提案编号；</li>
@@ -210,50 +310,46 @@
 <blockquote>
 <p>注：Proposal 有人叫“提议”有人叫“提案”，此处和维基百科里的翻译保持一致，叫“提案”。</p>
 </blockquote>
-<h2 id="角色">角色</h2>
+<h2 id="角色">角色<a hidden class="anchor" aria-hidden="true" href="#角色">#</a></h2>
 <ul>
 <li>Proposer：提案发起者；</li>
 <li>Acceptor：提案接收者；</li>
 <li>Learner：提案学习者；</li>
 </ul>
-<h1 id="问题描述">问题描述</h1>
+<h1 id="问题描述">问题描述<a hidden class="anchor" aria-hidden="true" href="#问题描述">#</a></h1>
 <p>为了高可用性，一种常见的设计是用一个 master 节点来写，然后复制到各个 slave 节点。这种解决方法的问题在于，一旦 master 节点故障，整个服务将不可用或者数据不一致。</p>
 <p>为了克服单点写入问题，于是有了多数派（Quorum）写，思路就是写入一半以上的节点。即，如果集群中有 N 个节点，客户端需要写入 W &gt;= N/2 + 1 个节点。不需要主节点。这种方法可以容忍最多 (N-1)/2 个节点故障。</p>
 <p>但是问题依然存在：每个接收者该如何决定是否接受这次请求的值呢？</p>
 <p>如果我们接受第一次收到的值，那么当出现以下情况（Split Votes），则没有出现多数派，没有一个值被 Chosen，算法无法终止，这违反了<strong>活性（liveness）</strong>。</p>
-<p><img src="/media/images/20200929-basic-paxos/Split-Votes.png" alt="Split Votes"></p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/Split-Votes.png" alt="Split Votes"  />
+</p>
 <p>为了解决 Split Votes 问题，我们允许接受多个不同的值，收到的<strong>每一个</strong>请求都接受，这时候新的问题出现了，如下，可能不止一个值被 Chosen，这违反了<strong>安全性（safety）</strong>。</p>
-<p><img src="/media/images/20200929-basic-paxos/Conflicting-Choices.png" alt="Conflicting Choices"></p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/Conflicting-Choices.png" alt="Conflicting Choices"  />
+</p>
 <p>注意，Paxos 强调：</p>
 <blockquote>
 <p>Once a value has been chosen, future proposals must propose the same value.</p>
 </blockquote>
 <p>也就是说，我们讨论的 Basic-Paxos 只会 Chosen 一个值。基于此，就需要一个两阶段（2-phase）协议，对于已经 Chosen 的值，<strong>后续的提案</strong>也要使用相同的值。</p>
 <p>如下图这种情况，S3 直接拒绝 <code>red</code> 值，因为 <code>blue</code> 已经 Chosen，这样就可以保证成功。</p>
-<p><img src="/media/images/20200929-basic-paxos/chosen.png" alt=""></p>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/chosen.png" alt=""  />
+</p>
 <p>这种方式我们需要对提案进行排序。如果你熟悉分布式系统，应该能想到 &ldquo;<a href="http://lamport.azurewebsites.net/pubs/time-clocks.pdf">Time, Clocks and the Ordering of Events in a Distributed System</a>&rdquo; 这篇论文，我们不能用时间来判断提案的先后顺序。</p>
-<h1 id="proposal-number">Proposal Number</h1>
+<h1 id="proposal-number">Proposal Number<a hidden class="anchor" aria-hidden="true" href="#proposal-number">#</a></h1>
 <p>一种简单的方式就是每个请求一个唯一的编号，例如：<code>&lt;seq_id, server_id&gt;</code>，为了排序 <code>seq_id</code> 是自增的；同时为了避免崩溃重启，必须能在本地持久化存储。</p>
-<h1 id="paxos">Paxos</h1>
+<h1 id="paxos">Paxos<a hidden class="anchor" aria-hidden="true" href="#paxos">#</a></h1>
 <p>现在我们终于可以开始描述 Paxos 算法了。</p>
 <p>如上所述，Paxos 是一个两阶段算法。我们把第一个阶段叫做准备（Prepare）阶段，第二个阶段叫做接受（Accept）阶段。分别对应两轮 RPC。</p>
-<h2 id="第一轮-prepare-rpcs">第一轮 Prepare RPCs：</h2>
-<h3 id="请求也叫-prepare-阶段">请求（也叫 Prepare 阶段）：</h3>
+<h2 id="第一轮-prepare-rpcs">第一轮 Prepare RPCs：<a hidden class="anchor" aria-hidden="true" href="#第一轮-prepare-rpcs">#</a></h2>
+<h3 id="请求也叫-prepare-阶段">请求（也叫 Prepare 阶段）：<a hidden class="anchor" aria-hidden="true" href="#请求也叫-prepare-阶段">#</a></h3>
 <p>Proposer 选择一个提案编号 n，向<strong>超过半数</strong>的 Acceptor 广播 <code>Prepare(n)</code> 请求。</p>
 <blockquote>
 <p>注：这里讲义的算法流程图是向所有的 Acceptor 发起 <code>Prepare()</code> 请求，鄙人认为应该改为向多数派 Acceptor 发起。参考论文原文： Phase 1. (a) A proposer selects a proposal number n and sends a prepare request with number n to a majority of acceptors.</p>
 </blockquote>
 <p><strong>这里 Prepare（n）不包含提案的值。</strong></p>
 <p>伪代码：</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre class="chroma"><code><span class="lnt">1
-</span></code></pre></td>
-<td class="lntd">
-<pre class="chroma"><code class="language-c++" data-lang="c++"><span class="n">send</span> <span class="n">PREPARE</span><span class="p">(</span><span class="o">++</span><span class="n">n</span><span class="p">)</span>
-</code></pre></td></tr></table>
-</div>
-</div><h3 id="响应也叫-promise-阶段">响应（也叫 PROMISE 阶段）：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++">send PREPARE(<span style="color:#f92672">++</span>n)
+</code></pre></div><h3 id="响应也叫-promise-阶段">响应（也叫 PROMISE 阶段）：<a hidden class="anchor" aria-hidden="true" href="#响应也叫-promise-阶段">#</a></h3>
 <p>Acceptor 接收到 <code>Prepare（n)</code> 请求，此时有两种情况：</p>
 <ul>
 <li>如果 n 大于之前接受到的所有 Prepare 请求的编号，则返回 <code>Promise()</code> 响应，并承诺将不会接收编号小于 n 的提案。如果有提案被 Chosen 的话，<code>Promise()</code> 响应还应包含前一次提案编号和对应的值。</li>
@@ -261,239 +357,253 @@
 </ul>
 <p><strong>所以，Acceptor 需要持久化存储 max_n、accepted_N 和 accepted_VALUE。</strong></p>
 <p>伪代码：</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre class="chroma"><code><span class="lnt">1
-</span><span class="lnt">2
-</span><span class="lnt">3
-</span><span class="lnt">4
-</span><span class="lnt">5
-</span><span class="lnt">6
-</span><span class="lnt">7
-</span><span class="lnt">8
-</span></code></pre></td>
-<td class="lntd">
-<pre class="chroma"><code class="language-c++" data-lang="c++"><span class="k">if</span> <span class="p">(</span><span class="n">n</span> <span class="o">&gt;</span> <span class="n">max_n</span><span class="p">)</span>
-    <span class="n">max_n</span> <span class="o">=</span> <span class="n">n</span>     <span class="c1">// save highest n we&#39;ve seen so far
-</span><span class="c1"></span>    <span class="k">if</span> <span class="p">(</span><span class="n">proposal_accepted</span> <span class="o">==</span> <span class="nb">true</span><span class="p">)</span> <span class="c1">// was a proposal already accepted?
-</span><span class="c1"></span>        <span class="nl">respond</span><span class="p">:</span> <span class="n">PROMISE</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">accepted_N</span><span class="p">,</span> <span class="n">accepted_VALUE</span><span class="p">)</span>
-    <span class="k">else</span>
-        <span class="nl">respond</span><span class="p">:</span> <span class="n">PROMISE</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
-<span class="k">else</span>
-    <span class="k">do</span> <span class="n">not</span> <span class="n">respond</span> <span class="p">(</span><span class="n">or</span> <span class="n">respond</span> <span class="n">with</span> <span class="n">a</span> <span class="s">&#34;fail&#34;</span> <span class="n">message</span><span class="p">)</span>
-</code></pre></td></tr></table>
-</div>
-</div><h2 id="第二轮-accept-rpcs">第二轮 Accept RPCs：</h2>
-<h3 id="请求也叫-propose-阶段">请求（也叫 PROPOSE 阶段）：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&gt;</span> max_n)
+    max_n <span style="color:#f92672">=</span> n     <span style="color:#75715e">// save highest n we&#39;ve seen so far
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> (proposal_accepted <span style="color:#f92672">==</span> true) <span style="color:#75715e">// was a proposal already accepted?
+</span><span style="color:#75715e"></span>        respond: PROMISE(n, accepted_N, accepted_VALUE)
+    <span style="color:#66d9ef">else</span>
+        respond: PROMISE(n)
+<span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">do</span> not respond (or respond with a <span style="color:#e6db74">&#34;fail&#34;</span> message)
+</code></pre></div><h2 id="第二轮-accept-rpcs">第二轮 Accept RPCs：<a hidden class="anchor" aria-hidden="true" href="#第二轮-accept-rpcs">#</a></h2>
+<h3 id="请求也叫-propose-阶段">请求（也叫 PROPOSE 阶段）：<a hidden class="anchor" aria-hidden="true" href="#请求也叫-propose-阶段">#</a></h3>
 <p>当 Proposer 收到<strong>超过半数 Acceptor</strong> 的 <code>Promise()</code> 响应后，Proposer 向<strong>多数派</strong>的 Acceptor 发起 <code>Accept(n, value)</code> 请求并带上提案编号和值。（注：这里讲义的算法流程图是向所有的 Acceptor 发起 <code>Accept()</code> 请求，鄙人认为应该改为向多数派 Acceptor 发起。）</p>
 <p><strong>注意：Proposer 不一定是将 <code>Accept()</code> 请求发给有应答的多数派 Acceptors，可以再选另一个多数派 Acceptors 广播 <code>Accept()</code> 请求。</strong></p>
 <p>**关于值 value 的选择：**如果前面的 Promise 响应有返回 <code>accepted_VALUE</code>，那就使用这个值作为 value。如果没有返回 <code>accepted_VALUE</code>，那可以自由决定提案值 value。</p>
 <p>伪代码：</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre class="chroma"><code><span class="lnt">1
-</span><span class="lnt">2
-</span><span class="lnt">3
-</span><span class="lnt">4
-</span><span class="lnt">5
-</span><span class="lnt">6
-</span><span class="lnt">7
-</span><span class="lnt">8
-</span></code></pre></td>
-<td class="lntd">
-<pre class="chroma"><code class="language-c++" data-lang="c++"><span class="n">did</span> <span class="n">I</span> <span class="n">receive</span> <span class="n">PROMISE</span> <span class="n">responses</span> <span class="n">from</span> <span class="n">a</span> <span class="n">majority</span> <span class="n">of</span> <span class="n">acceptors</span><span class="o">?</span>
-<span class="k">if</span> <span class="n">yes</span>
-    <span class="k">do</span> <span class="n">any</span> <span class="n">responses</span> <span class="n">contain</span> <span class="n">accepted</span> <span class="n">values</span> <span class="p">(</span><span class="n">from</span> <span class="n">other</span> <span class="n">proposals</span><span class="p">)</span><span class="o">?</span>
-    <span class="k">if</span> <span class="n">yes</span>
-        <span class="n">val</span> <span class="o">=</span> <span class="n">accepted_VALUE</span>    <span class="c1">// value from PROMISE message with the highest accepted ID
-</span><span class="c1"></span>    <span class="k">if</span> <span class="n">no</span>
-        <span class="n">val</span> <span class="o">=</span> <span class="n">VALUE</span>     <span class="c1">// we can use our proposed value
-</span><span class="c1"></span>    <span class="n">send</span> <span class="n">Accept</span><span class="p">(</span><span class="n">ID</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span> <span class="n">to</span> <span class="n">at</span> <span class="n">least</span> <span class="n">a</span> <span class="n">majority</span> <span class="n">of</span> <span class="n">acceptors</span>
-</code></pre></td></tr></table>
-</div>
-</div><h3 id="响应也叫-accept-阶段">响应（也叫 ACCEPT 阶段）：</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++">did I receive PROMISE responses from a majority of acceptors<span style="color:#f92672">?</span>
+<span style="color:#66d9ef">if</span> yes
+    <span style="color:#66d9ef">do</span> any responses contain accepted values (from other proposals)<span style="color:#f92672">?</span>
+    <span style="color:#66d9ef">if</span> yes
+        val <span style="color:#f92672">=</span> accepted_VALUE    <span style="color:#75715e">// value from PROMISE message with the highest accepted ID
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> no
+        val <span style="color:#f92672">=</span> VALUE     <span style="color:#75715e">// we can use our proposed value
+</span><span style="color:#75715e"></span>    send Accept(ID, val) to at least a majority of acceptors
+</code></pre></div><h3 id="响应也叫-accept-阶段">响应（也叫 ACCEPT 阶段）：<a hidden class="anchor" aria-hidden="true" href="#响应也叫-accept-阶段">#</a></h3>
 <p>Acceptor 收到 <code>Accept()</code> 请求，在这期间如果 Acceptor 没有对比 n 更大的编号另行 Promise，则接受该提案。</p>
 <p>伪代码：</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre class="chroma"><code><span class="lnt">1
-</span><span class="lnt">2
-</span><span class="lnt">3
-</span><span class="lnt">4
-</span><span class="lnt">5
-</span><span class="lnt">6
-</span><span class="lnt">7
-</span></code></pre></td>
-<td class="lntd">
-<pre class="chroma"><code class="language-c++" data-lang="c++"><span class="k">if</span> <span class="p">(</span><span class="n">n</span> <span class="o">&gt;=</span> <span class="n">max_n</span><span class="p">)</span> <span class="c1">// is the n the largest I have seen so far?
-</span><span class="c1"></span>    <span class="n">proposal_accepted</span> <span class="o">=</span> <span class="nb">true</span>     <span class="c1">// note that we accepted a proposal
-</span><span class="c1"></span>    <span class="n">accepted_N</span> <span class="o">=</span> <span class="n">n</span>             <span class="c1">// save the accepted proposal number
-</span><span class="c1"></span>    <span class="n">accepted_VALUE</span> <span class="o">=</span> <span class="n">VALUE</span>       <span class="c1">// save the accepted proposal data
-</span><span class="c1"></span>    <span class="nl">respond</span><span class="p">:</span> <span class="n">Accepted</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">VALUE</span><span class="p">)</span> <span class="n">to</span> <span class="n">the</span> <span class="n">proposer</span> <span class="n">and</span> <span class="n">all</span> <span class="n">learners</span>
-<span class="k">else</span>
-    <span class="k">do</span> <span class="n">not</span> <span class="n">respond</span> <span class="p">(</span><span class="n">or</span> <span class="n">respond</span> <span class="n">with</span> <span class="n">a</span> <span class="s">&#34;fail&#34;</span> <span class="n">message</span><span class="p">)</span>
-</code></pre></td></tr></table>
-</div>
-</div><h2 id="notes">Notes</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&gt;=</span> max_n) <span style="color:#75715e">// is the n the largest I have seen so far?
+</span><span style="color:#75715e"></span>    proposal_accepted <span style="color:#f92672">=</span> true     <span style="color:#75715e">// note that we accepted a proposal
+</span><span style="color:#75715e"></span>    accepted_N <span style="color:#f92672">=</span> n             <span style="color:#75715e">// save the accepted proposal number
+</span><span style="color:#75715e"></span>    accepted_VALUE <span style="color:#f92672">=</span> VALUE       <span style="color:#75715e">// save the accepted proposal data
+</span><span style="color:#75715e"></span>    respond: Accepted(N, VALUE) to the proposer and all learners
+<span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">do</span> not respond (or respond with a <span style="color:#e6db74">&#34;fail&#34;</span> message)
+</code></pre></div><h2 id="notes">Notes<a hidden class="anchor" aria-hidden="true" href="#notes">#</a></h2>
 <p>值得注意的是，只有 Proposer 知道某个提案的值是否被 Chosen，如果其它节点想知道某个值是否被 Chosen，那就必须用该值发起一次提案，执行一次 Paxos 算法。</p>
-<h1 id="一些例子">一些例子</h1>
-<h2 id="情况-1提案已-chosen">情况 1：提案已 Chosen</h2>
-<p><img src="/media/images/20200929-basic-paxos/example-1.jpg" alt="情况 1：提案已 Chosen"></p>
+<h1 id="一些例子">一些例子<a hidden class="anchor" aria-hidden="true" href="#一些例子">#</a></h1>
+<h2 id="情况-1提案已-chosen">情况 1：提案已 Chosen<a hidden class="anchor" aria-hidden="true" href="#情况-1提案已-chosen">#</a></h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-1.jpg" alt="情况 1：提案已 Chosen"  />
+</p>
 <ol>
 <li>S1 收到客户端提案请求 X，于是 S1 向 S1-S3 发起 <code>Prepare(3.1)</code> 请求，<code>PROMISE()</code> 响应返回没有提案被 Chosen</li>
 <li>由于 S1-S3 没有任何提案被 Chosen，S1 继续向 S1-S3 发送 <code>Accept(3.1, X)</code> 请求，提案被成功 Chosen</li>
 <li>在提案被 Chosen 后，S5 收到客户端提案值为 Y 的请求，向 S3-S5 发送 <code>Prepare(4.5)</code> 请求，由于编号 4 &gt; 3 会收到提案值为 X 已经被 Chosen 的 <code>PROMISE()</code> 响应</li>
 <li>于是 S5 <strong>将提案值 Y 替换成 X</strong>，向 S1-S3 发送 <code>Accept(4.5, X)</code> 请求，提案再次被 Chosen</li>
 </ol>
-<h2 id="情况-2提案未-chosenproposer-可见">情况 2：提案未 Chosen，Proposer 可见</h2>
-<p><img src="/media/images/20200929-basic-paxos/example-2.jpg" alt="情况 2：提案未 Chosen，Proposer 可见"></p>
+<h2 id="情况-2提案未-chosenproposer-可见">情况 2：提案未 Chosen，Proposer 可见<a hidden class="anchor" aria-hidden="true" href="#情况-2提案未-chosenproposer-可见">#</a></h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-2.jpg" alt="情况 2：提案未 Chosen，Proposer 可见"  />
+</p>
 <p>情况 2 和情况 1 类似，在 S3 Chosen 了提案后，S5 收到来自 S3 的 <code>PROMISE()</code> 响应包含了已经 Chosen 的提案值 X，所以同样会将提案值替换成 X，最终所有 Acceptor 对 X 达成共识。</p>
 <p>注意上面的伪代码：<code>do any responses contain accepted values</code>，也就是说只要有一个 Acceptor 在 <code>Promise()</code> 响应中返回了提案值，就要用它来替换提案值。</p>
-<h2 id="情况-3提案未提交proposer-不可见">情况 3：提案未提交，Proposer 不可见</h2>
-<p><img src="/media/images/20200929-basic-paxos/example-3.jpg" alt="情况 3：提案未提交，Proposer 不可见"></p>
+<h2 id="情况-3提案未提交proposer-不可见">情况 3：提案未提交，Proposer 不可见<a hidden class="anchor" aria-hidden="true" href="#情况-3提案未提交proposer-不可见">#</a></h2>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/example-3.jpg" alt="情况 3：提案未提交，Proposer 不可见"  />
+</p>
 <p>情况 3 中，提案只被 S1 Chosen，S3 还未 Chosen 该提案，S3-S5 的 <code>Promise()</code> 响应中没有任何提案信息，所以 S5 自行决定提案值为 Y，发送 <code>Accept(4.5, Y)</code> 请求。</p>
 <p>由于此时 S3 承诺的提案编号 n 变为了 4 且 4 大于 3，所以 S3 不再接受 S1 后续的 <code>Accept(3.1, X)</code> 请求。提案值 X 被阻止，而提案值 Y 最终被 Chosen。</p>
-<h1 id="活锁">活锁</h1>
-<p><img src="/media/images/20200929-basic-paxos/livelock.jpg" alt="活锁"></p>
+<h1 id="活锁">活锁<a hidden class="anchor" aria-hidden="true" href="#活锁">#</a></h1>
+<p><img loading="lazy" src="/media/images/20200929-basic-paxos/livelock.jpg" alt="活锁"  />
+</p>
 <p>如图：当 Proposer 在第一轮 Prepare 发出请求，还没来得及后续的第二轮 Accept 请求，紧接着第二个 Proposer 在第一阶段也发出编号更大的请求。如果这样无穷无尽，Acceptor 始终停留在决定顺序号的过程上，那大家谁也成功不了。</p>
 <p>解决活锁最简单的方式就是引入<strong>随机超时</strong>，这样可以让某个 Proposer 先进行提案，减少一直互相抢占的可能。</p>
-<h1 id="结语">结语</h1>
+<h1 id="结语">结语<a hidden class="anchor" aria-hidden="true" href="#结语">#</a></h1>
 <p>Paxos 只从一个或多个值中选择一个值，如果需要重复运行 Paxos 来创建复制状态机，我们称之为 multi-Paxos，但如果每个命令都通过一个Basic Paxos算法实例来达到一致，会产生大量开销。对于 multi-Paxos 可以做一些优化，我们在下篇文章中讨论 Paxos 的变种。</p>
 
-    </div>
 
-    <div class="post-copyright">
-  <p class="copyright-item">
-    <span class="item-title">文章作者</span>
-    <span class="item-content">Tangwz</span>
-  </p>
-  <p class="copyright-item">
-    <span class="item-title">上次更新</span>
-    <span class="item-content">
-        2020-09-29
-        
-    </span>
-  </p>
-  
-  <p class="copyright-item">
-    <span class="item-title">许可协议</span>
-    <span class="item-content">本作品采用<a rel="license noopener" href="https://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank">知识共享署名 4.0 国际许可协议</a>。转载时请注明原文链接。</span>
-  </p>
-</div>
-<div class="post-reward">
-  <input type="checkbox" name="reward" id="reward" hidden />
-  <label class="reward-button" for="reward">赞赏支持</label>
-  <div class="qr-code">
-    
-    <label class="qr-code-image" for="reward">
-        <img class="image" src="/media/images/reward/wechat.JPG">
-        <span>微信打赏</span>
-      </label>
-    <label class="qr-code-image" for="reward">
-        <img class="image" src="/path/to/your/alipay-qr-code.png">
-        <span>支付宝打赏</span>
-      </label>
   </div>
-</div><div class="post-wechat">
-    <h1>微信公众号</h1>
-    <img src="https://i.loli.net/2020/08/30/1TBdqh9rtgWDUoz.png">
-  </div><footer class="post-footer">
-      <div class="post-tags">
-          <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a>
-          </div>
-      <nav class="post-nav">
-        <a class="prev" href="/post/multi-paxos/">
-            <i class="iconfont icon-left"></i>
-            <span class="prev-text nav-default">Paxos 的变种（一）：Multi-Paxos</span>
-            <span class="prev-text nav-mobile">上一篇</span>
-          </a>
-        <a class="next" href="/post/git-merge-vs-rebase/">
-            <span class="next-text nav-default">同样更新分支，git merge 和 rebase 有什么区别？</span>
-            <span class="next-text nav-mobile">下一篇</span>
-            <i class="iconfont icon-right"></i>
-          </a>
-      </nav>
-    </footer>
-  </article>
-        </div>
-        
 
-  
+  <footer class="post-footer">
+    <ul class="post-tags">
+      <li><a href="https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a></li>
+    </ul>
+<nav class="paginav">
+  <a class="prev" href="https://tangwz.com/post/multi-paxos/">
+    <span class="title">« Prev Page</span>
+    <br>
+    <span>Paxos 的变种（一）：Multi-Paxos</span>
+  </a>
+  <a class="next" href="https://tangwz.com/post/git-merge-vs-rebase/">
+    <span class="title">Next Page »</span>
+    <br>
+    <span>同样更新分支，git merge 和 rebase 有什么区别？</span>
+  </a>
+</nav>
 
-  
 
-      </div>
+<div class="share-buttons">
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on twitter"
+        href="https://twitter.com/intent/tweet/?text=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f&amp;hashtags=%e5%88%86%e5%b8%83%e5%bc%8f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-253.927,424.544c135.939,0 210.268,-112.643 210.268,-210.268c0,-3.218 0,-6.437 -0.153,-9.502c14.406,-10.421 26.973,-23.448 36.935,-38.314c-13.18,5.824 -27.433,9.809 -42.452,11.648c15.326,-9.196 26.973,-23.602 32.49,-40.92c-14.252,8.429 -30.038,14.56 -46.896,17.931c-13.487,-14.406 -32.644,-23.295 -53.946,-23.295c-40.767,0 -73.87,33.104 -73.87,73.87c0,5.824 0.613,11.494 1.992,16.858c-61.456,-3.065 -115.862,-32.49 -152.337,-77.241c-6.284,10.881 -9.962,23.601 -9.962,37.088c0,25.594 13.027,48.276 32.95,61.456c-12.107,-0.307 -23.448,-3.678 -33.41,-9.196l0,0.92c0,35.862 25.441,65.594 59.311,72.49c-6.13,1.686 -12.72,2.606 -19.464,2.606c-4.751,0 -9.348,-0.46 -13.946,-1.38c9.349,29.426 36.628,50.728 68.965,51.341c-25.287,19.771 -57.164,31.571 -91.8,31.571c-5.977,0 -11.801,-0.306 -17.625,-1.073c32.337,21.15 71.264,33.41 112.95,33.41Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on linkedin"
+        href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f&amp;title=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89&amp;summary=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89&amp;source=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-288.985,423.278l0,-225.717l-75.04,0l0,225.717l75.04,0Zm270.539,0l0,-129.439c0,-69.333 -37.018,-101.586 -86.381,-101.586c-39.804,0 -57.634,21.891 -67.617,37.266l0,-31.958l-75.021,0c0.995,21.181 0,225.717 0,225.717l75.02,0l0,-126.056c0,-6.748 0.486,-13.492 2.474,-18.315c5.414,-13.475 17.767,-27.434 38.494,-27.434c27.135,0 38.007,20.707 38.007,51.037l0,120.768l75.024,0Zm-307.552,-334.556c-25.674,0 -42.448,16.879 -42.448,39.002c0,21.658 16.264,39.002 41.455,39.002l0.484,0c26.165,0 42.452,-17.344 42.452,-39.002c-0.485,-22.092 -16.241,-38.954 -41.943,-39.002Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on reddit"
+        href="https://reddit.com/submit?url=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f&title=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-3.446,265.638c0,-22.964 -18.616,-41.58 -41.58,-41.58c-11.211,0 -21.361,4.457 -28.841,11.666c-28.424,-20.508 -67.586,-33.757 -111.204,-35.278l18.941,-89.121l61.884,13.157c0.756,15.734 13.642,28.29 29.56,28.29c16.407,0 29.706,-13.299 29.706,-29.701c0,-16.403 -13.299,-29.702 -29.706,-29.702c-11.666,0 -21.657,6.792 -26.515,16.578l-69.105,-14.69c-1.922,-0.418 -3.939,-0.042 -5.585,1.036c-1.658,1.073 -2.811,2.761 -3.224,4.686l-21.152,99.438c-44.258,1.228 -84.046,14.494 -112.837,35.232c-7.468,-7.164 -17.589,-11.591 -28.757,-11.591c-22.965,0 -41.585,18.616 -41.585,41.58c0,16.896 10.095,31.41 24.568,37.918c-0.639,4.135 -0.99,8.328 -0.99,12.576c0,63.977 74.469,115.836 166.33,115.836c91.861,0 166.334,-51.859 166.334,-115.836c0,-4.218 -0.347,-8.387 -0.977,-12.493c14.564,-6.47 24.735,-21.034 24.735,-38.001Zm-119.474,108.193c-20.27,20.241 -59.115,21.816 -70.534,21.816c-11.428,0 -50.277,-1.575 -70.522,-21.82c-3.007,-3.008 -3.007,-7.882 0,-10.889c3.003,-2.999 7.882,-3.003 10.885,0c12.777,12.781 40.11,17.317 59.637,17.317c19.522,0 46.86,-4.536 59.657,-17.321c3.016,-2.999 7.886,-2.995 10.885,0.008c3.008,3.011 3.003,7.882 -0.008,10.889Zm-5.23,-48.781c-16.373,0 -29.701,-13.324 -29.701,-29.698c0,-16.381 13.328,-29.714 29.701,-29.714c16.378,0 29.706,13.333 29.706,29.714c0,16.374 -13.328,29.698 -29.706,29.698Zm-160.386,-29.702c0,-16.381 13.328,-29.71 29.714,-29.71c16.369,0 29.689,13.329 29.689,29.71c0,16.373 -13.32,29.693 -29.689,29.693c-16.386,0 -29.714,-13.32 -29.714,-29.693Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on facebook"
+        href="https://facebook.com/sharer/sharer.php?u=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-106.468,0l0,-192.915l66.6,0l12.672,-82.621l-79.272,0l0,-53.617c0,-22.603 11.073,-44.636 46.58,-44.636l36.042,0l0,-70.34c0,0 -32.71,-5.582 -63.982,-5.582c-65.288,0 -107.96,39.569 -107.96,111.204l0,62.971l-72.573,0l0,82.621l72.573,0l0,192.915l-191.104,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on whatsapp"
+        href="https://api.whatsapp.com/send?text=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89%20-%20https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-58.673,127.703c-33.842,-33.881 -78.847,-52.548 -126.798,-52.568c-98.799,0 -179.21,80.405 -179.249,179.234c-0.013,31.593 8.241,62.428 23.927,89.612l-25.429,92.884l95.021,-24.925c26.181,14.28 55.659,21.807 85.658,21.816l0.074,0c98.789,0 179.206,-80.413 179.247,-179.243c0.018,-47.895 -18.61,-92.93 -52.451,-126.81Zm-126.797,275.782l-0.06,0c-26.734,-0.01 -52.954,-7.193 -75.828,-20.767l-5.441,-3.229l-56.386,14.792l15.05,-54.977l-3.542,-5.637c-14.913,-23.72 -22.791,-51.136 -22.779,-79.287c0.033,-82.142 66.867,-148.971 149.046,-148.971c39.793,0.014 77.199,15.531 105.329,43.692c28.128,28.16 43.609,65.592 43.594,105.4c-0.034,82.149 -66.866,148.983 -148.983,148.984Zm81.721,-111.581c-4.479,-2.242 -26.499,-13.075 -30.604,-14.571c-4.105,-1.495 -7.091,-2.241 -10.077,2.241c-2.986,4.483 -11.569,14.572 -14.182,17.562c-2.612,2.988 -5.225,3.364 -9.703,1.12c-4.479,-2.241 -18.91,-6.97 -36.017,-22.23c-13.314,-11.876 -22.304,-26.542 -24.916,-31.026c-2.612,-4.484 -0.279,-6.908 1.963,-9.14c2.016,-2.007 4.48,-5.232 6.719,-7.847c2.24,-2.615 2.986,-4.484 4.479,-7.472c1.493,-2.99 0.747,-5.604 -0.374,-7.846c-1.119,-2.241 -10.077,-24.288 -13.809,-33.256c-3.635,-8.733 -7.327,-7.55 -10.077,-7.688c-2.609,-0.13 -5.598,-0.158 -8.583,-0.158c-2.986,0 -7.839,1.121 -11.944,5.604c-4.105,4.484 -15.675,15.32 -15.675,37.364c0,22.046 16.048,43.342 18.287,46.332c2.24,2.99 31.582,48.227 76.511,67.627c10.685,4.615 19.028,7.371 25.533,9.434c10.728,3.41 20.492,2.929 28.209,1.775c8.605,-1.285 26.499,-10.833 30.231,-21.295c3.732,-10.464 3.732,-19.431 2.612,-21.298c-1.119,-1.869 -4.105,-2.99 -8.583,-5.232Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 理解 Paxos（含伪代码） on telegram"
+        href="https://telegram.me/share/url?text=%e7%90%86%e8%a7%a3%20Paxos%ef%bc%88%e5%90%ab%e4%bc%aa%e4%bb%a3%e7%a0%81%ef%bc%89&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fbasic-paxos%2f">
+        <svg version="1.1" xml:space="preserve" viewBox="2 2 28 28">
+            <path
+                d="M26.49,29.86H5.5a3.37,3.37,0,0,1-2.47-1,3.35,3.35,0,0,1-1-2.47V5.48A3.36,3.36,0,0,1,3,3,3.37,3.37,0,0,1,5.5,2h21A3.38,3.38,0,0,1,29,3a3.36,3.36,0,0,1,1,2.46V26.37a3.35,3.35,0,0,1-1,2.47A3.38,3.38,0,0,1,26.49,29.86Zm-5.38-6.71a.79.79,0,0,0,.85-.66L24.73,9.24a.55.55,0,0,0-.18-.46.62.62,0,0,0-.41-.17q-.08,0-16.53,6.11a.59.59,0,0,0-.41.59.57.57,0,0,0,.43.52l4,1.24,1.61,4.83a.62.62,0,0,0,.63.43.56.56,0,0,0,.4-.17L16.54,20l4.09,3A.9.9,0,0,0,21.11,23.15ZM13.8,20.71l-1.21-4q8.72-5.55,8.78-5.55c.15,0,.23,0,.23.16a.18.18,0,0,1,0,.06s-2.51,2.3-7.52,6.8Z" />
+        </svg>
+    </a>
+</div>
+
+  </footer>
+</article>
     </main>
-
-    <footer id="footer" class="footer">
-      <div class="social-links">
-      <a href="https://stackoverflow.com/users/4805962/tangwz" class="iconfont icon-stack-overflow" title="stack-overflow"></a>
-      <a href="https://github.com/tangwz" class="iconfont icon-github" title="github"></a>
-      <a href="https://www.zhihu.com/people/duoketang" class="iconfont icon-zhihu" title="zhihu"></a>
-      <a href="https://www.douban.com/people/duoketang/" class="iconfont icon-douban" title="douban"></a>
-  <a href="https://tangwz.com/index.xml" type="application/rss+xml" class="iconfont icon-rss" title="rss"></a>
-</div>
-
-<div class="copyright">
-  <span class="power-by">
-    由 <a class="hexo-link" href="https://gohugo.io">Hugo</a> 强力驱动
-  </span>
-  <span class="division">|</span>
-  <span class="theme-info">
-    主题 - 
-    <a class="theme-link" href="https://github.com/olOwOlo/hugo-theme-even">Even</a>
-  </span>
-
-  
-
-  <span class="copyright-year">
-    &copy; 
-    2019 - 
-    2021
-    <span class="heart">
-      <i class="iconfont icon-heart"></i>
+    
+<footer class="footer">
+    <span>&copy; 2022 <a href="https://tangwz.com/">多颗糖</a></span>
+    <span>
+        Powered by
+        <a href="https://gohugo.io/" rel="noopener noreferrer" target="_blank">Hugo</a> &
+        <a href="https://git.io/hugopapermod" rel="noopener" target="_blank">PaperMod</a>
     </span>
-    <span class="author">Tangwz</span>
-  </span>
-</div>
-    </footer>
+</footer>
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
 
-    <div class="back-to-top" id="back-to-top">
-      <i class="iconfont icon-up"></i>
-    </div>
-  </div>
-  <script type="text/javascript" src="/lib/jquery/jquery-3.2.1.min.js"></script>
-  <script type="text/javascript" src="/lib/slideout/slideout-1.0.1.min.js"></script>
-  <script type="text/javascript" src="/lib/fancybox/jquery.fancybox-3.1.20.min.js"></script>
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
 
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
 
-
-<script type="text/javascript" src="/js/main.min.d7b7ada643c9c1a983026e177f141f7363b4640d619caf01d8831a6718cd44ea.js"></script>
-  <script type="text/javascript">
-    window.MathJax = {
-      showProcessingMessages: false,
-      messageStyle: 'none'
-    };
-  </script>
-  <script async src="https://cdn.jsdelivr.net/npm/mathjax@2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"  integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script>
-
-
-<script type="application/javascript">
-var doNotTrack = false;
-if (!doNotTrack) {
-	window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
-	ga('create', 'UA-72128068-1', 'auto');
-	ga('set', 'anonymizeIp', true);
-	ga('send', 'pageview');
-}
 </script>
-<script async src='https://www.google-analytics.com/analytics.js'></script>
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
 
+</script>
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
 
+</script>
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
 
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerText = 'copy';
 
+        function copyingDone() {
+            copybutton.innerText = 'copied!';
+            setTimeout(() => {
+                copybutton.innerText = 'copy';
+            }, 2000);
+        }
 
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
 
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
 
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
 </body>
+
 </html>

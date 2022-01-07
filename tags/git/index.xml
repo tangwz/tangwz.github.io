@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
-    <title>git on Tangwz - 我想要说的，前人们都说过了</title>
+    <title>git on 多颗糖</title>
     <link>https://tangwz.com/tags/git/</link>
-    <description>Recent content in git on Tangwz - 我想要说的，前人们都说过了</description>
+    <description>Recent content in git on 多颗糖</description>
+    <image>
+      <url>https://tangwz.com/</url>
+      <link>https://tangwz.com/</link>
+    </image>
     <generator>Hugo -- gohugo.io</generator>
-    <language>en</language>
-    <copyright>Tangwz</copyright>
+    <language>en-us</language>
     <lastBuildDate>Sun, 13 Sep 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/tags/git/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
@@ -14,7 +17,62 @@
       <pubDate>Sun, 13 Sep 2020 00:00:00 +0000</pubDate>
       
       <guid>https://tangwz.com/post/git-merge-vs-rebase/</guid>
-      <description>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主干的代码同步，还要一次只能有一条 commit。过程中我错误地使用了一把 git merge 和 git r</description>
+      <description> 最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主干的代码同步，还要一次只能有一条 commit。过程中我错误地使用了一把 git merge 和 git rebase，特此总结一下。
+ 区别 同样更新分支，git merge 和 rebase 有什么区别？让我们从这个例子来看：
+* 33facc8 (master) Commit 3 | | * 3b36f32 (second_branch) Detached commit | | |/ * 29af11f Commit 2 | * 1439f8e Commit 1 我们在 Commit 2 创建分支 second_branch 写代码，并提交了一个 commit: 3b36f32，在这之后，主干有人也提交了代码 Commit 3。
+问题来了：如何把 Commit 3 拉到我们的分支继续开发？（你的领导或同事肯定经常让你这样干！）
+这时候用 git merge master 或 git rebase master 都能更新 second_branch，也许有时候还要处理下冲突。但他们的结果却不相同，如下图：
+   git merge master git rebase master     合并 master 的记录到分支，合并之后的所有 commit 会按提交时间从新到旧排列。 当前分支的 HEAD 会移动到 master 的结尾，但会变成一个新的 commit。   用 git log --graph 查看的话，会有一条丑陋的边！ git log --graph 是一条漂亮的直线   保持了所有 commit 的连贯性 commit 历史被修改了，3b36f32 被修改成了 a018520    什么时候用 rebase，什么时候用 merge？  用 merge 来把分支合并到主干。（废话！） 如果你的分支要跟别人共享，则不建议用 rebase，因为 rebase 会创建不一致的提交历史。 如果只有你个人开发推荐使用 rebase。 如果你想保留完整的提交历史，推荐使用 merge，merge 保留历史 而 rebase 重写历史。 rebase 还可以压缩、简化历史，通过 git rebase -i 可以在分支合并到主干前，整理自己分支的提交历史，把很多细碎的 commit 整理成一条详细的 commit。 rebase 一次只处理一个冲突，merge 则一次处理全部冲突。处理冲突 rebase 更方便，但如果有很多冲突的话，撤销一个 rebase 会比 merge 更复杂，merge 只需要撤销一次。  </description>
+      <content:encoded><![CDATA[<blockquote>
+<p>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主干的代码同步，还要一次只能有一条 commit。过程中我错误地使用了一把 git merge 和 git rebase，特此总结一下。</p>
+</blockquote>
+<h2 id="区别">区别</h2>
+<p>同样更新分支，git merge 和 rebase 有什么区别？让我们从这个例子来看：</p>
+<pre tabindex="0"><code>* 33facc8  (master) Commit 3
+|
+| * 3b36f32  (second_branch) Detached commit
+| |
+|/
+* 29af11f  Commit 2
+|
+* 1439f8e  Commit 1
+</code></pre><p>我们在 <code>Commit 2</code> 创建分支 <code>second_branch</code> 写代码，并提交了一个 <code>commit</code>: <code>3b36f32</code>，在这之后，主干有人也提交了代码 <code>Commit 3</code>。</p>
+<p>问题来了：如何把 <code>Commit 3</code> 拉到我们的分支继续开发？（你的领导或同事肯定经常让你这样干！）</p>
+<p>这时候用 <code>git merge master</code> 或 <code>git rebase master</code> 都能更新 <code>second_branch</code>，也许有时候还要处理下冲突。但他们的结果却不相同，如下图：</p>
+<p><img loading="lazy" src="/media/images/20200913-git-merge-vs-rebase/git-merge-vs-rebase.jpg" alt=""  />
+</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">git merge master</th>
+<th style="text-align:center">git rebase master</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">合并 <code>master</code> 的记录到分支，合并之后的所有 <code>commit</code> 会按提交时间从新到旧排列。</td>
+<td style="text-align:center">当前分支的 <code>HEAD</code> 会移动到 master 的结尾，但会变成一个新的 <code>commit</code>。</td>
+</tr>
+<tr>
+<td style="text-align:center">用 <code>git log --graph</code> 查看的话，会有一条<strong>丑陋的</strong>边！</td>
+<td style="text-align:center"><code>git log --graph</code> 是一条漂亮的直线</td>
+</tr>
+<tr>
+<td style="text-align:center">保持了所有 <code>commit</code> 的连贯性</td>
+<td style="text-align:center"><code>commit</code> 历史被修改了，<code>3b36f32</code> 被修改成了 <code>a018520</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="什么时候用-rebase什么时候用-merge">什么时候用 rebase，什么时候用 merge？</h2>
+<ul>
+<li>用 <code>merge</code> 来把分支合并到主干。（废话！）</li>
+<li>如果你的分支要跟别人共享，则<strong>不建议</strong>用 <code>rebase</code>，因为 <code>rebase</code> 会创建不一致的提交历史。</li>
+<li>如果只有你个人开发推荐使用 <code>rebase</code>。</li>
+<li>如果你想保留完整的提交历史，推荐使用 <code>merge</code>，<code>merge</code> 保留历史 而 <code>rebase</code> 重写历史。</li>
+<li><code>rebase</code> 还可以压缩、简化历史，通过 <code>git rebase -i</code> 可以在分支合并到主干前，整理自己分支的提交历史，把很多细碎的 <code>commit</code> 整理成一条详细的 <code>commit</code>。</li>
+<li><code>rebase</code> 一次只处理一个冲突，<code>merge</code> 则一次处理全部冲突。处理冲突 <code>rebase</code> 更方便，但如果有很多冲突的话，撤销一个 <code>rebase</code> 会比 <code>merge</code> 更复杂，<code>merge</code> 只需要撤销一次。</li>
+</ul>
+]]></content:encoded>
     </item>
     
   </channel>

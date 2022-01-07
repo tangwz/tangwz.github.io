@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>编程语言 on 多颗糖</title>
+    <link>https://tangwz.com/categories/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/</link>
+    <description>Recent content in 编程语言 on 多颗糖</description>
+    <image>
+      <url>https://tangwz.com/</url>
+      <link>https://tangwz.com/</link>
+    </image>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Sat, 06 Mar 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/categories/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>如何编写 C&#43;&#43; 20 协程(Coroutines)</title>
+      <link>https://tangwz.com/post/cpp-coroutine/cpp-coroutine/</link>
+      <pubDate>Sat, 06 Mar 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/post/cpp-coroutine/cpp-coroutine/</guid>
+      <description>C++20 带着 Coroutines 来了！
+花了一两周的时间后，我想写写 C++20 协程的基本用法，因为 C++ 的协程让我感到很奇怪，写一个协程程序十分费劲。让我们抛去复杂的东西，来看看写一个 C++ 协程需要哪些东西。
+编译器支持 由于 C++ 20 还没被所有编译器完全支持，首先需要确保你的编译器实现了 Coroutines，可以通过下面的网站查看编译器支持情况：https://en.cppreference.com/w/cpp/compiler_support#cpp20
+值得一提，我使用的 MacOS 自带的 Apple Clang 对 C++20 支持很弱，我选择通过 Homebrew 安装最新版的 GNU GCC (10 以上版本)来编译。
+我使用的 GNU GCC 10.2 版本编译指令：
+g++ -fcoroutines -std=c++20 Clang 支持不够好，不推荐使用。Clang 可以使用如下命令编译：
+clang++ -std=c++20 -stdlib=libc++ -fcoroutines-ts 不推荐 Clang 还有一个理由：使用 Clang 需要 include 头文件 &amp;lt;experimental/coroutine&amp;gt;  而不是 &amp;lt;coroutine&amp;gt;。此外，一些类型被命名为 std::experimental:xxx 而不是 std:xxx。
+以下示例代码只支持 GNU GCC 版本的编译器。
+C++ 协程简介 在正式开始之前，我们先要理解 C++20 中协程使用的一些术语。#
+首先，什么是协程？</description>
+      <content:encoded><![CDATA[<p>C++20 带着 Coroutines 来了！</p>
+<p>花了一两周的时间后，我想写写 C++20 协程的基本用法，因为 C++ 的协程让我感到很奇怪，写一个协程程序十分费劲。让我们抛去复杂的东西，来看看写一个 C++ 协程需要哪些东西。</p>
+<h2 id="编译器支持">编译器支持</h2>
+<p>由于 C++ 20 还没被所有编译器完全支持，首先需要确保你的编译器实现了 Coroutines，可以通过下面的网站查看编译器支持情况：https://en.cppreference.com/w/cpp/compiler_support#cpp20</p>
+<p>值得一提，我使用的 MacOS 自带的 Apple Clang 对 C++20 支持很弱，我选择通过 Homebrew 安装最新版的 GNU GCC (10 以上版本)来编译。</p>
+<p>我使用的 GNU GCC 10.2 版本编译指令：</p>
+<pre tabindex="0"><code>g++ -fcoroutines -std=c++20
+</code></pre><p><strong>Clang 支持不够好，不推荐使用</strong>。Clang 可以使用如下命令编译：</p>
+<pre tabindex="0"><code>clang++ -std=c++20 -stdlib=libc++ -fcoroutines-ts
+</code></pre><p>不推荐 Clang 还有一个理由：使用 Clang 需要 include 头文件 <code>&lt;experimental/coroutine&gt; </code> 而不是 <code>&lt;coroutine&gt;</code>。此外，一些类型被命名为 <code>std::experimental:xxx</code> 而不是 <code>std:xxx</code>。</p>
+<p>以下示例代码只支持 GNU GCC 版本的编译器。</p>
+<h2 id="c-协程简介">C++ 协程简介</h2>
+<p>在正式开始之前，我们先要理解 C++20 中协程使用的一些术语。#</p>
+<p>首先，什么是协程？</p>
+<p>协程就是一个可以**挂起(suspend)<strong>和</strong>恢复(resume)**的函数(但无论如何不能是 main 函数)。你可以暂停协程的执行，去做其他事情，然后在适当的时候恢复到暂停的位置继续执行。<strong>协程让我们使用同步方式写异步代码</strong>。</p>
+<p>怎么挂起协程呢？C++ 提供了三个方法：<code>co_await</code>, <code>co_yield</code> 和 <code>co_return</code>。</p>
+<blockquote>
+<p>顺便说一句：coroutine 不是并行(parallelism)，和 Go 语言的 goroutine 不一样！</p>
+</blockquote>
+<p>与你之前接触到的协程完全不同，一个 C++ 协程一般长这样：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">ReturnObject</span> {
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">promise_type</span> {
+        ReturnObject <span style="color:#a6e22e">get_return_object</span>() { <span style="color:#66d9ef">return</span> {}; }
+        std<span style="color:#f92672">::</span>suspend_never initial_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        std<span style="color:#f92672">::</span>suspend_never final_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unhandled_exception</span>() {}
+    };
+};
+
+<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">Awaitable</span> {
+    std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;&gt;</span> <span style="color:#f92672">*</span>hp_;
+    <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">bool</span> <span style="color:#a6e22e">await_ready</span>() <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> { <span style="color:#66d9ef">return</span> false; }
+    <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_suspend</span>(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;&gt;</span> h) { <span style="color:#f92672">*</span>hp_ <span style="color:#f92672">=</span> h; }
+    <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_resume</span>() <span style="color:#66d9ef">noexcept</span> {
+        std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;Event signaled, resuming.&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    }
+};
+
+ReturnObject <span style="color:#a6e22e">counter</span>(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;&gt;</span> <span style="color:#f92672">*</span>continuation_out) {
+    Awaitable a{continuation_out};
+    <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">unsigned</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;; <span style="color:#f92672">++</span>i) {
+        <span style="color:#66d9ef">co_await</span> a;
+        std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;counter: &#34;</span> <span style="color:#f92672">&lt;&lt;</span> i <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    }
+}
+</code></pre></div><p>这奇怪的协程代码涉及了 C++ 协程很重要的三个概念：</p>
+<ul>
+<li><code>promise_type</code></li>
+<li><code>Awaitable</code></li>
+<li><code>std::coroutine_handle&lt;&gt;</code></li>
+</ul>
+<p>在写 C++20 的协程之前，我们必须需要先了解三个概念，可以用这三张图来形容这三个概念：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/06/9om1brcaIDQl374.jpg" alt=""  />
+
+图来源: <a href="https://www.youtube.com/watch?v=vzC2iRfO_H8">https://www.youtube.com/watch?v=vzC2iRfO_H8</a></p>
+<h2 id="promise">Promise</h2>
+<p>C++ 协程的<strong>返回类型</strong>必须是 <code>promise_type</code>，<code>promise_type</code> 是一个 interface，你可以用它来控制协程，在协程的生命周期中注入自定义行为：</p>
+<ul>
+<li><code>get_return_object</code>： 控制协程的返回对象</li>
+<li><code>initial_suspend</code>：在协程开始的时候挂起</li>
+<li><code>final_suspend</code>：在协程结束的时候挂起</li>
+</ul>
+<p>协程的生命周期如下，用户自定义的函数 <code>&lt;function-body&gt;</code> 被包裹在下面的伪代码中(来源：http://eel.is/c++draft/dcl.fct.def.coroutine#5)：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++">{
+   promise<span style="color:#f92672">-</span>type promise promise<span style="color:#f92672">-</span>constructor<span style="color:#f92672">-</span>arguments ;
+   <span style="color:#66d9ef">try</span> {
+      <span style="color:#66d9ef">co_await</span> promise.initial_suspend() ;
+      <span style="color:#f92672">&lt;</span>function<span style="color:#f92672">-</span>body<span style="color:#f92672">&gt;</span>
+   } <span style="color:#66d9ef">catch</span> ( ... ) {
+      <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>initial<span style="color:#f92672">-</span>await<span style="color:#f92672">-</span>resume<span style="color:#f92672">-</span>called)
+         <span style="color:#66d9ef">throw</span> ;
+      promise.unhandled_exception() ;
+   }
+<span style="color:#66d9ef">final</span><span style="color:#f92672">-</span>suspend :
+   <span style="color:#66d9ef">co_await</span> promise.final_suspend() ;
+}
+
+<span style="color:#75715e">// coroutine 被销毁
+</span></code></pre></div><p>可以看到，<code>initial_suspend</code> 会在进入协程(也就是函数)之前执行，<code>final_suspend</code> 会在协程返回之前执行。</p>
+<p>如果 <code>final_suspend</code> 真的挂起了协程，那么作为协程的调用者，你需要手动的调用 destroy 来释放协程；如果 <code>final_suspend</code> 没有挂起协程，那么协程将自动销毁。先记住这句话，在后面还会提到。</p>
+<p>除此之外，Promise 还有一些其它责任：</p>
+<ul>
+<li><code>return_void()</code>/<code>return_value()</code>/<code>yield_value()</code> 方法: 用来控制 <code>co_return</code> 和 <code>co_yield</code> 的行为；</li>
+<li><code>unhandled_exception()</code> 处理异常</li>
+<li>创建和销毁协程的 <code>stackframe</code></li>
+<li>处理 <code>stackframe</code> 创建可能发生的异常</li>
+</ul>
+<blockquote>
+<p>stackframe ：函数运行时占用的内存空间，是栈上的数据集合，它包括：</p>
+</blockquote>
+<ul>
+<li>Local variables</li>
+<li>Saved copies of registers modified by subprograms that could need restoration</li>
+<li>Argument parameters</li>
+<li>Return address</li>
+</ul>
+<h2 id="awaitable">Awaitable</h2>
+<p>第二个概念是 <code>Awaitable</code>，<code>Awaitable</code> 负责管理协程挂起时的行为。</p>
+<p>一个 Awaitable 对象可以成为 <code>co_await</code> 调用的对象。Awaitable 拥有以下方法：</p>
+<ul>
+<li><code>await_ready()</code>：是否要挂起，如果返回 true，那么 <code>co_await</code> 就不会挂起函数；</li>
+<li><code>await_resume()</code>：<code>co_await</code> 的返回值，通常返回空；</li>
+<li><code>await_suspend()</code>：协程挂起时的行为；</li>
+</ul>
+<blockquote>
+<p>可以在 <code>await_suspend</code> 中实现 <code>await_ready</code> 的效果，例如直接不挂起当前的协程，但在调用 <code>await_suspend</code> 之前，编译器必须将所有状态捆绑到协程的 <code>stackframe</code> 中，这会更耗时。</p>
+</blockquote>
+<p>有时候我们的协程并不需要自定义复杂的行为，C++ 提供了两个默认的 <code>Awaitable</code>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">namespace</span> std {
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">suspend_never</span> {
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">bool</span> <span style="color:#a6e22e">await_ready</span>() <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> { <span style="color:#66d9ef">return</span> true; }
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_suspend</span>(coroutine_handle<span style="color:#f92672">&lt;&gt;</span>) <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> {}
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_resume</span>() <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> {}
+    };
+    
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">suspend_always</span> {
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">bool</span> <span style="color:#a6e22e">await_ready</span>() <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> { <span style="color:#66d9ef">return</span> false; } 
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_suspend</span>(coroutine_handle<span style="color:#f92672">&lt;&gt;</span>) <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> {}
+        <span style="color:#66d9ef">constexpr</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">await_resume</span>() <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">noexcept</span> {}
+    };
+}
+</code></pre></div><p><code>suspend_always::await_ready()</code> 总是返回 false，而 <code>suspend_always::await_ready()</code> 总是返回 true。其他的方法都是空的，没有任何作用。</p>
+<p>如果没有其它多余的行为，我们可以在函数中直接调用 <code>co_await std::suspend_always{}</code> 来挂起一个函数。</p>
+<h2 id="coroutine-handle">Coroutine Handle</h2>
+<p><code>co_await</code> 挂起函数，并创建了一个可调用对象，这个对象可以用来恢复Hanns乎的执行。这个可调用对象的类型就是 <code>std::coroutine_handle&lt;&gt;</code>，最常用的两个方法是：</p>
+<ul>
+<li><code>handle.resume()</code>：恢复协程的执行；</li>
+<li><code>handle.destroy()</code>：销毁协程；</li>
+</ul>
+<p><code>Coroutine Handle</code> 很像指针，我们可以复制它，但析构函数不会释放相关状态的内存。为了避免内存泄漏，一般要调用 <code>handle.destroy()</code> 来释放（尽管在某些情况下，协程会在完成后自行销毁——前文有提到）。同样像指针一样，一旦销毁了一个 <code>Coroutine Handle</code> ，指向同一个协程的另一个 <code>Coroutine Handle</code> 将指向垃圾，并在调用时表现出未定义行为。</p>
+<p>学习更复杂的用法之前，我们先看下示例。</p>
+<h2 id="示例">示例</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;coroutine&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;iostream&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloCoroutine</span> {
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloPromise</span> {
+        HelloCoroutine <span style="color:#a6e22e">get_return_object</span>() {
+            <span style="color:#66d9ef">return</span> std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;::</span>from_promise(<span style="color:#f92672">*</span><span style="color:#66d9ef">this</span>);
+        }
+        std<span style="color:#f92672">::</span>suspend_never initial_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        <span style="color:#75715e">// 在 final_suspend() 挂起了协程，所以要手动 destroy
+</span><span style="color:#75715e"></span>        std<span style="color:#f92672">::</span>suspend_always final_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unhandled_exception</span>() {}
+    };
+
+    <span style="color:#66d9ef">using</span> promise_type <span style="color:#f92672">=</span> HelloPromise;
+    HelloCoroutine(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> h) <span style="color:#f92672">:</span> handle(h) {}
+
+    std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> handle;
+};
+
+HelloCoroutine <span style="color:#a6e22e">hello</span>() {
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;Hello &#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    <span style="color:#66d9ef">co_await</span> std<span style="color:#f92672">::</span>suspend_always{};
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;world!&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+}
+
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>() {
+    HelloCoroutine coro <span style="color:#f92672">=</span> hello();
+    
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;calling resume&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    coro.handle.resume();
+    
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;destroy&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    coro.handle.destroy();
+
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+}
+</code></pre></div><p>这个简短的示例展示了 C++ 实现协程 &ldquo;Hello world&rdquo; 程序。我们执行完 &ldquo;Hello &quot; 后挂起函数，又在执行 <code>handle.resume()</code> 后恢复函数的运行。</p>
+<p>非常简单，不再过多解释。</p>
+<h2 id="co_yield"><code>co_yield</code></h2>
+<p>C++ 协程与一个 Promise 交互之所以如此笨拙，有一个特殊原因就是为了 <code>co_yield</code>。</p>
+<p>如果 promise 是当前协程的 Promise 对象，那么执行：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">co_yield</span> <span style="color:#f92672">&lt;</span>expression<span style="color:#f92672">&gt;</span>;
+</code></pre></div><p>相当于执行了：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">co_await</span> promise.yield_value(<span style="color:#f92672">&lt;</span>expression<span style="color:#f92672">&gt;</span>);
+</code></pre></div><p>所以，需要在 promise_type 中添加一个 <code>yield_value</code> 方法。上面的例子可以改为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;coroutine&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;iostream&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string_view&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloCoroutine</span> {
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloPromise</span> {
+        std<span style="color:#f92672">::</span>string_view value_;
+
+        HelloCoroutine <span style="color:#a6e22e">get_return_object</span>() {
+            <span style="color:#66d9ef">return</span> std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;::</span>from_promise(<span style="color:#f92672">*</span><span style="color:#66d9ef">this</span>);
+        }
+        std<span style="color:#f92672">::</span>suspend_never initial_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        std<span style="color:#f92672">::</span>suspend_always final_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unhandled_exception</span>() {}
+
+        std<span style="color:#f92672">::</span>suspend_always yield_value(std<span style="color:#f92672">::</span>string_view value) {
+            value_ <span style="color:#f92672">=</span> value;
+            std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> value_ <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+            <span style="color:#66d9ef">return</span> {};
+        }
+    };
+
+    <span style="color:#66d9ef">using</span> promise_type <span style="color:#f92672">=</span> HelloPromise;
+    HelloCoroutine(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> h) <span style="color:#f92672">:</span> handle(h) {}
+
+    std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> handle;
+};
+
+HelloCoroutine <span style="color:#a6e22e">hello</span>() {
+    std<span style="color:#f92672">::</span>string_view s <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;Hello &#34;</span>;
+    <span style="color:#66d9ef">co_yield</span> s;
+
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;world&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+}
+
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>() {
+    HelloCoroutine coro <span style="color:#f92672">=</span> hello();
+
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;calling resume&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    coro.handle.resume();
+
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;destroy&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    coro.handle.destroy();
+
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+}
+</code></pre></div><p>可以用 <code>co_yield</code> 实现 Python 中的生成器，参考：https://lewissbaker.github.io/2018/09/05/understanding-the-promise-type</p>
+<h2 id="co_return"><code>co_return</code></h2>
+<p>执行 <code>co_return</code> 语句时：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">co_return</span> <span style="color:#f92672">&lt;</span>expression<span style="color:#f92672">&gt;</span>;
+</code></pre></div><p>相当于执行了：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#66d9ef">co_return</span> promise.return_value(<span style="color:#f92672">&lt;</span>expression<span style="color:#f92672">&gt;</span>); <span style="color:#66d9ef">goto</span> end;
+</code></pre></div><p>下面再给出示例加上 <code>co_return</code> 的版本：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;coroutine&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;iostream&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloCoroutine</span> {
+    <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">HelloPromise</span> {
+        HelloCoroutine <span style="color:#a6e22e">get_return_object</span>() {
+            <span style="color:#66d9ef">return</span> std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;::</span>from_promise(<span style="color:#f92672">*</span><span style="color:#66d9ef">this</span>);
+        }
+        std<span style="color:#f92672">::</span>suspend_never initial_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        std<span style="color:#f92672">::</span>suspend_always final_suspend() { <span style="color:#66d9ef">return</span> {}; }
+        <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unhandled_exception</span>() {}
+
+        <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">return_value</span>(<span style="color:#66d9ef">int</span> value) { 
+            std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;got co_return value &#34;</span> <span style="color:#f92672">&lt;&lt;</span> value <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl; 
+        }
+    };
+
+    <span style="color:#66d9ef">using</span> promise_type <span style="color:#f92672">=</span> HelloPromise;
+    HelloCoroutine(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> h) <span style="color:#f92672">:</span> handle(h) {}
+
+    std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;</span>HelloPromise<span style="color:#f92672">&gt;</span> handle;
+};
+
+HelloCoroutine <span style="color:#a6e22e">hello</span>() {
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;Hello &#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    <span style="color:#66d9ef">co_await</span> std<span style="color:#f92672">::</span>suspend_always{};
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;world!&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    <span style="color:#66d9ef">co_return</span> <span style="color:#ae81ff">42</span>;
+}
+
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>() {
+    HelloCoroutine coro <span style="color:#f92672">=</span> hello();
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;calling resume&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+
+    coro.handle.resume();
+    std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;destroy&#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>endl;
+    coro.handle.destroy();
+
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+}
+</code></pre></div><h2 id="复杂一些">复杂一些</h2>
+<p>到此， <code>Awaitable</code> 和 <code>Coroutine Handle</code> 好像还没有发挥什么作用，我写的示例程序都非常简单。</p>
+<p>如果我们想在协程挂起的时候，做更多的动作，一般将 <code>Coroutine Handle</code> 传到 Awaitable 的 <code>await_suspend()</code> 中，用一个<a href="https://en.cppreference.com/w/cpp/language/coroutines">官网的例子</a>展示一下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c++" data-lang="c++"><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;coroutine&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;iostream&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdexcept&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;thread&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span> 
+<span style="color:#66d9ef">auto</span> <span style="color:#a6e22e">switch_to_new_thread</span>(std<span style="color:#f92672">::</span>jthread<span style="color:#f92672">&amp;</span> out) {
+  <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">awaitable</span> {
+    std<span style="color:#f92672">::</span>jthread<span style="color:#f92672">*</span> p_out;
+    <span style="color:#66d9ef">bool</span> await_ready() { <span style="color:#66d9ef">return</span> false; }
+    <span style="color:#66d9ef">void</span> await_suspend(std<span style="color:#f92672">::</span>coroutine_handle<span style="color:#f92672">&lt;&gt;</span> h) {
+      std<span style="color:#f92672">::</span>jthread<span style="color:#f92672">&amp;</span> out <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>p_out;
+      <span style="color:#66d9ef">if</span> (out.joinable())
+        <span style="color:#66d9ef">throw</span> std<span style="color:#f92672">::</span>runtime_error(<span style="color:#e6db74">&#34;Output jthread parameter not empty&#34;</span>);
+      out <span style="color:#f92672">=</span> std<span style="color:#f92672">::</span>jthread([h] { h.resume(); });
+      <span style="color:#75715e">// Potential undefined behavior: accessing potentially destroyed *this
+</span><span style="color:#75715e"></span>      <span style="color:#75715e">// std::cout &lt;&lt; &#34;New thread ID: &#34; &lt;&lt; p_out-&gt;get_id() &lt;&lt; &#39;\n&#39;;
+</span><span style="color:#75715e"></span>      std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;New thread ID: &#34;</span> <span style="color:#f92672">&lt;&lt;</span> out.get_id() <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#39;\n&#39;</span>; <span style="color:#75715e">// this is OK
+</span><span style="color:#75715e"></span>    }
+    <span style="color:#66d9ef">void</span> await_resume() {}
+  };
+  <span style="color:#66d9ef">return</span> awaitable{<span style="color:#f92672">&amp;</span>out};
+}
+ 
+<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">task</span>{
+  <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">promise_type</span> {
+    task <span style="color:#a6e22e">get_return_object</span>() { <span style="color:#66d9ef">return</span> {}; }
+    std<span style="color:#f92672">::</span>suspend_never initial_suspend() { <span style="color:#66d9ef">return</span> {}; }
+    std<span style="color:#f92672">::</span>suspend_never final_suspend() <span style="color:#66d9ef">noexcept</span> { <span style="color:#66d9ef">return</span> {}; }
+    <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">return_void</span>() {}
+    <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">unhandled_exception</span>() {}
+  };
+};
+ 
+task <span style="color:#a6e22e">resuming_on_new_thread</span>(std<span style="color:#f92672">::</span>jthread<span style="color:#f92672">&amp;</span> out) {
+  std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;Coroutine started on thread: &#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>this_thread<span style="color:#f92672">::</span>get_id() <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#39;\n&#39;</span>;
+  <span style="color:#66d9ef">co_await</span> switch_to_new_thread(out);
+  <span style="color:#75715e">// awaiter destroyed here
+</span><span style="color:#75715e"></span>  std<span style="color:#f92672">::</span>cout <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#34;Coroutine resumed on thread: &#34;</span> <span style="color:#f92672">&lt;&lt;</span> std<span style="color:#f92672">::</span>this_thread<span style="color:#f92672">::</span>get_id() <span style="color:#f92672">&lt;&lt;</span> <span style="color:#e6db74">&#39;\n&#39;</span>;
+}
+ 
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>() {
+  std<span style="color:#f92672">::</span>jthread out;
+  resuming_on_new_thread(out);
+}
+</code></pre></div><h2 id="小结">小结</h2>
+<p>本文简单介绍了 C++ 协程，希望下次你写 C++ 协程的时候，首先想到这三个东西：</p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/06/9om1brcaIDQl374.jpg" alt=""  />
+</p>
+<p>我不是编程语言专家，对于 C++ 也没有很深入的研究，C++ 在万众期待下终于支持了协程，但用了一下发现，C++ 的协程显得有些繁琐、怪异，或许是我不清楚 C++ 在原有情况下支持协程的困难，但我依然觉得 C++ 团队可以做得更好。</p>
+<p>我本人确实还没明白到底该如何在项目中使用这臃肿的协程。</p>
+<p>不过，可以预见到的是，我们会在越来越多的 C++ 项目中看到协程的身影。比如 facebook folly 就已经实现了一个实验阶段的协程框架: <a href="https://github.com/facebook/folly/tree/master/folly/experimental/coro">https://github.com/facebook/folly/tree/master/folly/experimental/coro</a></p>
+<p>也许等我再研究一段时间，会写一篇到底该如何使用 C++ 协程。</p>
+<h2 id="reference">Reference</h2>
+<ul>
+<li>C++ Coroutine definitions: <a href="http://eel.is/c++draft/dcl.fct.def.coroutine#5">http://eel.is/c++draft/dcl.fct.def.coroutine#5</a></li>
+<li>C++ draft expr.await: <a href="http://eel.is/c++draft/expr.await">http://eel.is/c++draft/expr.await</a></li>
+<li>C++ Coroutines: Understanding the promise type: <a href="https://lewissbaker.github.io/2018/09/05/understanding-the-promise-type">https://lewissbaker.github.io/2018/09/05/understanding-the-promise-type</a></li>
+<li>官网的例子：https://en.cppreference.com/w/cpp/language/coroutines</li>
+<li>My tutorial and take on C++20 coroutines：https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html#coroutine-handles</li>
+</ul>
+]]></content:encoded>
+    </item>
+    
+  </channel>
+</rss>

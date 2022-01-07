@@ -1,178 +1,298 @@
 <!DOCTYPE html>
-<html lang="zh-cn">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-  <title>条分缕析 Raft 算法(续)：日志压缩和性能优化 - Tangwz - 我想要说的，前人们都说过了</title>
-  <meta name="renderer" content="webkit" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<html lang="en" dir="auto">
 
-<meta http-equiv="Cache-Control" content="no-transform" />
-<meta http-equiv="Cache-Control" content="no-siteapp" />
-
-<meta name="theme-color" content="#f8f5ec" />
-<meta name="msapplication-navbutton-color" content="#f8f5ec">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="#f8f5ec">
-
-
-<meta name="author" content="Tangwz" /><meta name="description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。 1 日志压缩 随着时间推移，存储的日志会越来越多，不但" /><meta name="keywords" content="Hugo, tangwz, blog, 博客, 分布式" />
-
-
-
-
-
-
-<meta name="generator" content="Hugo 0.80.0 with theme even" />
-
-
+<head><meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>条分缕析 Raft 算法(续)：日志压缩和性能优化 | 多颗糖</title>
+<meta name="keywords" content="分布式" />
+<meta name="description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。
+1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。
+日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。
+一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。
+和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。
+不同的压缩方法有几个核心的共同点：
+ 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。
+上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。
+memory-based 状态机的快照的大部分工作是序列化内存中的数据结构。
+通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图：">
+<meta name="author" content="多颗糖">
 <link rel="canonical" href="https://tangwz.com/post/raft-extension/" />
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="manifest" href="/manifest.json">
-<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5">
+<link crossorigin="anonymous" href="/assets/css/stylesheet.min.c88963fe2d79462000fd0fb1b3737783c32855d340583e4523343f8735c787f0.css" integrity="sha256-yIlj/i15RiAA/Q&#43;xs3N3g8MoVdNAWD5FIzQ/hzXHh/A=" rel="preload stylesheet" as="style">
+<script defer crossorigin="anonymous" src="/assets/js/highlight.min.7680afc38aa6b15ddf158a4f3780b7b1f7dde7e91d26f073e6229bb7a0793c92.js" integrity="sha256-doCvw4qmsV3fFYpPN4C3sffd5&#43;kdJvBz5iKbt6B5PJI="
+    onload="hljs.initHighlightingOnLoad();"></script>
+<link rel="icon" href="https://tangwz.com/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="https://tangwz.com/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://tangwz.com/favicon-32x32.png">
+<link rel="apple-touch-icon" href="https://tangwz.com/apple-touch-icon.png">
+<link rel="mask-icon" href="https://tangwz.com/safari-pinned-tab.svg">
+<meta name="theme-color" content="#2e2e33">
+<meta name="msapplication-TileColor" content="#2e2e33">
+<meta name="generator" content="Hugo 0.89.4" />
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
 
+    </style>
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
 
+            .list {
+                background: var(--theme);
+            }
 
-<link href="/sass/main.min.651e6917abb0239242daa570c2bec9867267bbcd83646da5a850afe573347b44.css" rel="stylesheet">
-<link href="/lib/fancybox/jquery.fancybox-3.1.20.min.css" rel="stylesheet">
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
 
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
 
-<meta property="og:title" content="条分缕析 Raft 算法(续)：日志压缩和性能优化" />
-<meta property="og:description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。 1 日志压缩 随着时间推移，存储的日志会越来越多，不但" />
+    </style>
+</noscript>
+<script type="application/javascript">
+var doNotTrack = false;
+if (!doNotTrack) {
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-72128068-1', 'auto');
+	
+	ga('send', 'pageview');
+}
+</script><meta property="og:title" content="条分缕析 Raft 算法(续)：日志压缩和性能优化" />
+<meta property="og:description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。
+1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。
+日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。
+一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。
+和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。
+不同的压缩方法有几个核心的共同点：
+ 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。
+上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。
+memory-based 状态机的快照的大部分工作是序列化内存中的数据结构。
+通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图：" />
 <meta property="og:type" content="article" />
-<meta property="og:url" content="https://tangwz.com/post/raft-extension/" />
-<meta property="article:published_time" content="2021-02-19T00:00:00+00:00" />
-<meta property="article:modified_time" content="2021-02-19T00:00:00+00:00" />
-<meta itemprop="name" content="条分缕析 Raft 算法(续)：日志压缩和性能优化">
-<meta itemprop="description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。 1 日志压缩 随着时间推移，存储的日志会越来越多，不但">
-<meta itemprop="datePublished" content="2021-02-19T00:00:00+00:00" />
-<meta itemprop="dateModified" content="2021-02-19T00:00:00+00:00" />
-<meta itemprop="wordCount" content="5370">
+<meta property="og:url" content="https://tangwz.com/post/raft-extension/" /><meta property="og:image" content="https://tangwz.com/"/><meta property="article:section" content="post" />
+<meta property="article:published_time" content="2021-02-19T00:00:00&#43;00:00" />
+<meta property="article:modified_time" content="2021-02-19T00:00:00&#43;00:00" />
 
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://tangwz.com/"/>
 
-
-<meta itemprop="keywords" content="分布式," />
-<meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="条分缕析 Raft 算法(续)：日志压缩和性能优化"/>
-<meta name="twitter:description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。 1 日志压缩 随着时间推移，存储的日志会越来越多，不但"/>
+<meta name="twitter:description" content="在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。
+1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。
+日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。
+一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。
+和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。
+不同的压缩方法有几个核心的共同点：
+ 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。
+上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。
+memory-based 状态机的快照的大部分工作是序列化内存中的数据结构。
+通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图："/>
 
-<!--[if lte IE 9]>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/classlist/1.1.20170427/classList.min.js"></script>
-<![endif]-->
 
-<!--[if lt IE 9]>
-  <script src="https://cdn.jsdelivr.net/npm/html5shiv@3.7.3/dist/html5shiv.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/respond.js@1.4.2/dest/respond.min.js"></script>
-<![endif]-->
-
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position":  1 ,
+      "name": "Posts",
+      "item": "https://tangwz.com/post/"
+    }, 
+    {
+      "@type": "ListItem",
+      "position":  2 ,
+      "name": "条分缕析 Raft 算法(续)：日志压缩和性能优化",
+      "item": "https://tangwz.com/post/raft-extension/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "条分缕析 Raft 算法(续)：日志压缩和性能优化",
+  "name": "条分缕析 Raft 算法(续)：日志压缩和性能优化",
+  "description": "在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。\n1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。\n日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。\n一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。\n和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。\n不同的压缩方法有几个核心的共同点：\n 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log\u0010\u0010\u0010\u0010；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。\n上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。\nmemory-based 状态机的快照的大部分工作是序列化内存中的数据结构。\n通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图：",
+  "keywords": [
+    "分布式"
+  ],
+  "articleBody": "在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。\n1 日志压缩 随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。\n日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。\n一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。\n和配置变化不同，不同的系统有不同的日志压缩方式，取决于你的性能考量，以及基于硬盘还是基于内存。日志压缩的大部分责任都落在状态机上。\n不同的压缩方法有几个核心的共同点：\n 不将压缩决定集中在 Leader 上，每个服务器独立地压缩其已提交的日志。这就避免了 Leader 将日志传递给已有该日志的 Follower，同时也增强了模块化，减少交互，将整个系统的复杂性最小化。（对于非常小的状态机，基于 Leader 的日志压缩也许更好。） 将之前的 log 的维护责任从 Raft 转移到状态机。Raft 要保存最后被丢弃的记录的index和term，用于 AppendEntries RPC 一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。 一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log\u0010\u0010\u0010\u0010；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。  1.1 基于内存的状态机的快照 状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。\n上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。\nmemory-based 状态机的快照的大部分工作是序列化内存中的数据结构。\n通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 InstallSnapshot RPC 来传输。你肯定在论文中看过下图：\n1.1.1 快照的并发性 创建一个快照需要耗费很长时间，包括序列化和写入磁盘。\n 例如，在今天的服务器上拷贝 10GB 的内存花费大约1秒钟，序列化它通常将花费更长的时间：即使 SSD 1秒钟也仅能写入大约 100MB。\n 因此，序列化和写快照都要与常规操作并发进行，避免服务不可用。\ncopy-on-write 技术允许进行新的更新而不影响写快照。有两个方法来实现：\n 状态机可以用不可变的(immutable)数据结构来实现。因为状态机命令不会 in-place 的方式来修改状态(通常使用追加的方式)，快照任务可以引用之前状态的并把状态一致地写入到快照。 另外，也可以使用操作系统的 copy-on-write。例如，在 Linux 上可以使用 fork 来复制父进程的整个地址空间，然后子进程就可以把状态机的状态写出并退出，整个过程中父进程都可以持续地提供服务。LogCabin中当前使用的就是这种方法。  1.1.2 何时做快照 服务器需要决定什么时候做快照。太过频繁地做快照，将会浪费磁盘带宽和其他资源；太不频繁地做快照，则有存储空间耗尽的风险，并且重启服务需要更长的重放日志时间。\n一个简单的策略是设置一个阈值，当日志大小超过阈值则做快照。然而，这会导致对于小型状态机时有着不必要的大日志。\n一个更好的方法是引入快照大小和日志大小的对比，如果日志超过快照好几倍，可能就需要做快照。但是在做快照之前计算快照的大小是困难并且繁重的，会引入额外负担。所以使用前一个快照的大小是比较合理的行为，一旦日志大小超过之前的快照的大小乘以扩展因子(expansion factor)，服务器就做快照。\n这个扩展因子权衡空间和带宽利用率。例如，扩展因子为 4 的话会有 20% 的带宽用于快照(每1byte 的快照写入有对应的 4bytes 的 log 写入)和大约 6 倍的硬盘空间使用(旧的快照+日志+新的快照)。\n快照仍然会导致 CPU 和磁盘的占用率突发，可以增加额外的磁盘来减轻该现象。\n同时，可以通过调度使得做快照对客户端请求没有影响。服务器需要协调保证在某一时刻集群只有小部分成员集同时在做快照。由于 Raft 是多数派成员构成的 commit，所以这样就不会影响请求的提交了。当 Leader 想做快照的时候，首先要先下台，让其他服务器选出另一个 Leader 接替工作。如果这个方法充分地可行，就可能消除快照的并发，服务器在快照期间其实是不可用的(这可能会造成集群的容错能力降低的问题)。这是一个令人兴奋的提升集群性能并降低实现机制的机会。（这里其实可以通过实现指定服务器做快照来优化，braft 里就有提到这点。）\n1.1.3 实现的关注点 这一节回顾快照的主要组件的实现并讨论实现的难点：\n 保存和加载快照：保存快照需要对其序列化并写入磁盘，而加载则是反序列化。通过流式接口(streaming interface)可以避免将整个快照缓冲到内存中。可能对流进行压缩并附带一个 checksum 比较好。LogCabin 先把快照写入一个临时文件，当写完并且刷到磁盘后，再把文件改名。这是为了避免server启动的时候加载到部分的快照。 传输快照：传输快照牵涉到如何实现 InstallSnapshot RPC。传输的性能通常不是非常重要(一个需要这种动作的 Follower 不会参与到日志的 commit 决策中，因此不需要立即完成)。 消除不安全的日志访问和丢弃日志条目：最初设计 LogCabin 的时候没有考虑日志压缩，因此代码上假定了如果 entry i 在日志中，那么 entry 1 到 i - 1 也一定在日志中。有了日志压缩，这就不再成立了，前面的 entry 可能已经被丢弃了。这里需要仔细推理和测试。可能对一些强类型的系统做这些是简单的，编译器会强制检查日志访问并处理越界的问题。一旦我们使得所有的日志访问都是安全的，丢弃前面的日志就很直接了。在这之前，我们都只能单独地测试保存、加载和传输快照。 通过 copy-on-write 并发地做快照：可能需要重新设计状态机或利用操作系统的 fork。LogCabin 当前使用的是 fork，相比于线程交互性很差，要使其正确工作也有一定的难度。然而，它的代码量很小，而且不需要修改状态机数据结构。 决定何时做快照：我们建议在开发的过程中每应用一条日志就做一个快照，这样便于快速定位问题。一旦实现完成，就需要增加一个更有效的机制选择什么时候做快照。  1.2 基于磁盘的状态机的快照 对于几十或上百 GB 的状态机，需要使用磁盘作为主要存储。对于每一条记录，当其被提交并应用到状态机后，其实就可以被丢弃了，因为磁盘已经持久化存储了，可以理解为每条日志就做了一个快照。\nDisk-based 状态机的主要问题是，磁盘会导致性能不佳。在没有写缓冲的情况下，每应用一条命了都需要进行一次或多次随机磁盘写入，这会限制系统的整体吞吐量。\nDisk-based 状态机仍然需要支持向日志落后的 Follower 提供最新的快照，而写快照也要继续提供服务，所以仍然需要 copy-on-write 技术以在一定期间内保持一个一致地快照传输。幸运的是，磁盘总是被划分为逻辑块，因此在状态机中实现应该是直接的。基于磁盘的状态机也可以依靠操作系统的支持，例如 Linux 的 LVM 也可以用来创建快照。\n1.2.1 增量清理的方法 增量的方法做压缩如 log cleaning 或 LSM tree，是可能的。他们快照的实现会更复杂，但有如下优点：\n 每次只操作数据的一部分，所以压缩的负载随着时间来看是均匀的。 写入磁盘的效率更高。它们使用大范围的、连续的写入。递增清理的方法可以有选择的压缩磁盘中拥有最多可重复使用空间的部分，可以写入更少的数据。 传递快照更为简单，因为它们不会 in-place 地修改磁盘的区域。  1.2.2 Log cleaning 来自于 The Design and Implementation of a Log-Structured File System。\nLog cleaning 写入时直接追加，日志被切分为多个连续的 Segments。每一个 segment 通过以下三个步骤进行压缩：\n 首先选择要清理的段，这些段累积了大量废弃的记录； 把有效的记录(live entry)从那些段中拷贝到日志的开头 释放那些段的空间  为了最小化对正常操作的影响，这个过程应该并发地做。\n由于将有效的记录转存到日志的头部，日志出现乱序，可以包含附加的信息(比如 version number)以在日志应用的时候重建正确的顺序。\n选择哪些段做清理的策略对性能有非常大的影响。Log cleaning 建立了一个模型，不仅考虑live entry 的占比，同时考虑这些 entry 会存活多长时间。但不幸的是，每个状态机的 live entry 会有所不同。\n1.2.3 LSM tree LSM tree 由于 BigTable 的提出被广泛使用。\nLSM tree 是树型的数据结构，存储有序的键值对。在高层次上和 Log cleaning 一样：大的顺序写并且不 in-place 地修改磁盘上的数据。。然而，LSM tree 并没有在日志中维护所有状态，而是重新组织状态以便更好地进行随机读。\n典型的 LSM tree 将最近的写入在磁盘上保持一份小的 log。当 log 达到一定的大小后，对 key 进行排序并且写入一个叫做 run 的文件中。Runs 不会 in-place 修改，但是会周期性地对 runs 进行 merge，产生新的 runs 并丢弃旧的，merge 的过程像 merge sort。\n在正常操作期间，状态机可以直接在这些数据上操作。对于读一个 key 来说，首先检查是否在最近的 log 中有修改，之后检查每一个 run。为了避免对每一个 run 做 key 的检查，一些系统对每一个 run 创建了 bloom filter。\n1.2.4 Raft 中的 Log cleaning 和 LSM tree LogCabin 还未实现 Log cleaning 或 LSM tree，把 LSM tree 应用到 Raft 是直截了当的，因为 Raft 日志已经将最近的记录持久地存储在磁盘上，LSM tree 可以将最近的数据以更方便的树型保存在内存中，这将提高查找的性能。并且当 Raft 日志达到指定大小的时候，这个树按顺序写到磁盘作为一个新的 run。传输状态的时候 Leader 需要把所有的 run 发送给Follower(不包含内存中的树)；幸运的是，runs 都是不可变的，所以不必担心传输过程中 runs 被修改。\n把 Log cleaning 应用到 Raft 就不是这么明显了。\n1.3 其它日志压缩 略。\n2 性能优化 2.1 Writing to the leader’s disk in parallel 在前面的实现中，Leader 将日志写到磁盘后，再将该日志复制到它的 Follower，然后等待 Follower 将该日志写到他们的磁盘上。这里出现了两次连续的磁盘写入等待，这将导致显著的延迟。\nLeader 可以在向 Follower 并行复制日志的同时写入自己的磁盘，如图：\na 是没有并行优化的，而 b 是进行并行优化的。\n如果多数派 Follower 已经写入磁盘，Leader 甚至可以在该记录写入自己的磁盘之前就提交，这仍然是安全的。\n2.2 Batch 和 Pipeline Raft 支持 Batch 和 Pipeline，这两者对性能提升都很重要。\n Batch：Leader 可以一次收集多个客户端 requests，然后一批发送给 Follower。当然，我们也需要有一个最大发送 size 来限制每次最多可以发送多少数据，LogCabin 使用 1M 大小。 Pipeline：如果只是用 batch，Leader 还是需要等待 Follower 返回才能继续后面的流程，我们这里还可以使用 Pipeline 来进行加速。Leader 会维护一个 nextIndex 的变量来表示下一个给 Follower 发送的 log 位置，通常情况下，只要 Leader 跟 Follower 建立起了连接，我们都会认为网络是稳定互通的。所以当 Leader 给 Follower 发送了一批 log 之后，它可以直接更新 nextIndex，并且立刻发送后面的 log，不需要等待 Follower 的返回。如果网络出现了错误，或者 Follower 返回一些错误，Leader 就重新调整 nextIndex，然后重新发送 log。  AppendEntries RPC 一致性检查保证了 pipeline 的安全性，但是，如果 RPC 失败/超时了，Leader 就要将 nextIndex 递减回到初始值重来。如果 AppendEntries RPC 一致性检查还是失败，Leader 可能进一步递减 nextIndex 重试发送前一个记录，或者等待前一个记录被确认。\n最初的线程架构阻碍了 pipeline，因为它只能支持每个 Follower 一个 RPC。这里 Leader 必须多线程地与一个 Follower 建立多个连接。\n如果 Leader 与一个 Follower 共用一个连接使用 pipeline 的话, 那么效果会是怎样的呢?其实这样和 Batch 没有多大区别，tcp 层面已经是串行的了，tcp 有滑动窗口来做 batch，同时单条连接保证了消息很少会乱序。\n那么，如果使用多线程连接的话可能存在什么问题？即使因为在多个连接中不能保证有序，但是大部分情况还是先发送的先到达；即使后发送的先到达了，由于有 AppendEntries RPC 一致性检查的存在，后发送的自然会失败，失败后重试即可。\nRaft 系统的整体性能在很大程度上取决于如何安排 batch 和 pipeline。如果在高负载的情况下，一个 batch 中积累的请求数量不够，整体处理效率就会很低，导致低吞吐量和高延迟。另一方面，如果在一个 batch 中积累了太多的请求，延迟将不必要地变高，因为早期的请求要等待后来的请求到达。\n2.3 pre-vote 网络分区会导致某个节点的数据与集群最新数据差距拉大，但是 term 因为不断尝试选主而变得很大。网络恢复之后，Leader 向其进行日志复制时，就会导致 Leader 因为 term 较小而下台。这种情况可以引入 pre-vote 来避免。Follower 在转变为 Candidate 之前，先与集群节点通信，获得集群 Leader 是否存活的信息，如果当前集群有 Leader 存活，Follower 就不会转变为 Candidate，也不会增加term。\n2.4 MultiRaft 来自 CockroachDB 的优化：https://www.cockroachlabs.com/blog/scaling-RAFT/\nRaft 的 Leader 向 Follower 的心跳间隔一般都较小，在 100ms 粒度，当复制实例数较多的时候，心跳包的数量就呈指数增长。如图：\n这里将复制组之间的心跳合并到节点之间的心跳。如图：\nbraft 提供了静默模式：通常复制组不需要频繁的切换 Leader，我们可以将主动 Leader Election 的功能关闭，这样就不需要维护 Leader Lease 的心跳了。复制组依靠业务 Master 进行被动触发 Leader Election，这个可以只在 Leader 节点宕机时触发，整体的心跳数就从复制实例数降为节点数。\nReference   CONSENSUS BRIDGING THEORY AND PRACTICE: https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf\n  理论基础 · Raft phd 论文中的pipeline 优化: http://mysql.taobao.org/monthly/2019/03/08/\n  TiKV 源码解析系列 - Raft 的优化: https://zhuanlan.zhihu.com/p/25735592\n  Scaling Raft: https://www.cockroachlabs.com/blog/scaling-RAFT/\n  RAFT介绍: https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md\n  相关阅读 ",
+  "wordCount" : "528",
+  "inLanguage": "en",
+  "datePublished": "2021-02-19T00:00:00Z",
+  "dateModified": "2021-02-19T00:00:00Z",
+  "author":{
+    "@type": "Person",
+    "name": "多颗糖"
+  },
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://tangwz.com/post/raft-extension/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "多颗糖",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://tangwz.com/favicon.ico"
+    }
+  }
+}
+</script>
 </head>
-<body>
-  <div id="mobile-navbar" class="mobile-navbar">
-  <div class="mobile-header-logo">
-    <a href="/" class="logo">Tangwz 的博客</a>
-  </div>
-  <div class="mobile-navbar-icon">
-    <span></span>
-    <span></span>
-    <span></span>
-  </div>
+
+<body class="" id="top">
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https://tangwz.com/" accesskey="h" title="多颗糖 (Alt + H)">多颗糖</a>
+            <span class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+            </span>
+        </div>
+        <ul id="menu">
+            <li>
+                <a href="https://tangwz.com/page/about/" title="关于">
+                    <span>关于</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://tangwz.com/page/archives/" title="归档">
+                    <span>归档</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://tangwz.com/page/search/" title="搜索">
+                    <span>搜索</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</header>
+<main class="main">
+
+<article class="post-single">
+  <header class="post-header">
+    <div class="breadcrumbs"><a href="https://tangwz.com/">Home</a>&nbsp;»&nbsp;<a href="https://tangwz.com/post/">Posts</a></div>
+    <h1 class="post-title">
+      条分缕析 Raft 算法(续)：日志压缩和性能优化
+    </h1>
+    <div class="post-meta"><span title='2021-02-19 00:00:00 +0000 UTC'>February 19, 2021</span>&nbsp;·&nbsp;3 min&nbsp;·&nbsp;多颗糖&nbsp;|&nbsp;<a href="https://github.com/adityatelange/hugo-PaperMod/tree/exampleSite/content/post/raft-extension.md" rel="noopener noreferrer" target="_blank">Suggest Changes</a>
+
 </div>
-<nav id="mobile-menu" class="mobile-menu slideout-menu">
-  <ul class="mobile-menu-list">
-    <a href="/">
-        <li class="mobile-menu-item">主页</li>
-      </a><a href="/post/">
-        <li class="mobile-menu-item">归档</li>
-      </a><a href="/tags/">
-        <li class="mobile-menu-item">标签</li>
-      </a><a href="/categories/">
-        <li class="mobile-menu-item">分类</li>
-      </a><a href="/about">
-        <li class="mobile-menu-item">关于</li>
-      </a><a href="/index.xml">
-        <li class="mobile-menu-item">RSS</li>
-      </a>
-  </ul>
-</nav>
-  <div class="container" id="mobile-panel">
-    <header id="header" class="header">
-        <div class="logo-wrapper">
-  <a href="/" class="logo">Tangwz 的博客</a>
+  </header> <div class="toc">
+    <details >
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner"><ul>
+                <li>
+                    <a href="#1-%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9" aria-label="1 日志压缩">1 日志压缩</a><ul>
+                        
+                <li>
+                    <a href="#11-%e5%9f%ba%e4%ba%8e%e5%86%85%e5%ad%98%e7%9a%84%e7%8a%b6%e6%80%81%e6%9c%ba%e7%9a%84%e5%bf%ab%e7%85%a7" aria-label="1.1 基于内存的状态机的快照">1.1 基于内存的状态机的快照</a><ul>
+                        
+                <li>
+                    <a href="#111-%e5%bf%ab%e7%85%a7%e7%9a%84%e5%b9%b6%e5%8f%91%e6%80%a7" aria-label="1.1.1 快照的并发性">1.1.1 快照的并发性</a></li>
+                <li>
+                    <a href="#112-%e4%bd%95%e6%97%b6%e5%81%9a%e5%bf%ab%e7%85%a7" aria-label="1.1.2 何时做快照">1.1.2 何时做快照</a></li>
+                <li>
+                    <a href="#113-%e5%ae%9e%e7%8e%b0%e7%9a%84%e5%85%b3%e6%b3%a8%e7%82%b9" aria-label="1.1.3 实现的关注点">1.1.3 实现的关注点</a></li></ul>
+                </li>
+                <li>
+                    <a href="#12-%e5%9f%ba%e4%ba%8e%e7%a3%81%e7%9b%98%e7%9a%84%e7%8a%b6%e6%80%81%e6%9c%ba%e7%9a%84%e5%bf%ab%e7%85%a7" aria-label="1.2 基于磁盘的状态机的快照">1.2 基于磁盘的状态机的快照</a><ul>
+                        
+                <li>
+                    <a href="#121-%e5%a2%9e%e9%87%8f%e6%b8%85%e7%90%86%e7%9a%84%e6%96%b9%e6%b3%95" aria-label="1.2.1 增量清理的方法">1.2.1 增量清理的方法</a></li>
+                <li>
+                    <a href="#122-log-cleaning" aria-label="1.2.2 Log cleaning">1.2.2 Log cleaning</a></li>
+                <li>
+                    <a href="#123-lsm-tree" aria-label="1.2.3 LSM tree">1.2.3 LSM tree</a></li>
+                <li>
+                    <a href="#124-raft-%e4%b8%ad%e7%9a%84-log-cleaning-%e5%92%8c-lsm-tree" aria-label="1.2.4 Raft 中的 Log cleaning 和 LSM tree">1.2.4 Raft 中的 Log cleaning 和 LSM tree</a></li></ul>
+                </li>
+                <li>
+                    <a href="#13-%e5%85%b6%e5%ae%83%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9" aria-label="1.3 其它日志压缩">1.3 其它日志压缩</a></li></ul>
+                </li>
+                <li>
+                    <a href="#2-%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96" aria-label="2 性能优化">2 性能优化</a><ul>
+                        
+                <li>
+                    <a href="#21-writing-to-the-leaders-disk-in-parallel" aria-label="2.1 Writing to the leader’s disk in parallel">2.1 Writing to the leader’s disk in parallel</a></li>
+                <li>
+                    <a href="#22-batch-%e5%92%8c-pipeline" aria-label="2.2 Batch 和 Pipeline">2.2 Batch 和 Pipeline</a></li>
+                <li>
+                    <a href="#23-pre-vote" aria-label="2.3 pre-vote">2.3 pre-vote</a></li>
+                <li>
+                    <a href="#24-multiraft" aria-label="2.4 MultiRaft">2.4 MultiRaft</a></li></ul>
+                </li>
+                <li>
+                    <a href="#reference" aria-label="Reference">Reference</a></li>
+                <li>
+                    <a href="#%e7%9b%b8%e5%85%b3%e9%98%85%e8%af%bb" aria-label="相关阅读">相关阅读</a>
+                </li>
+            </ul>
+        </div>
+    </details>
 </div>
 
-<nav class="site-navbar">
-  <ul id="menu" class="menu">
-    <li class="menu-item">
-        <a class="menu-item-link" href="/">主页</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/post/">归档</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/tags/">标签</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/categories/">分类</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/about">关于</a>
-      </li><li class="menu-item">
-        <a class="menu-item-link" href="/index.xml">RSS</a>
-      </li>
-  </ul>
-</nav>
-    </header>
-
-    <main id="main" class="main">
-      <div class="content-wrapper">
-        <div id="content" class="content">
-          <article class="post">
-    
-    <header class="post-header">
-      <h1 class="post-title">条分缕析 Raft 算法(续)：日志压缩和性能优化</h1>
-
-      <div class="post-meta">
-        <span class="post-time"> 2021-02-19 </span>
-        <div class="post-category">
-            <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%A7%91%E5%AD%A6/"> 计算机科学 </a>
-            </div>
-          <span class="more-meta"> 约 5370 字 </span>
-          <span class="more-meta"> 预计阅读 11 分钟 </span>
-        
-      </div>
-    </header>
-
-    <div class="post-toc" id="post-toc">
-  <h2 class="post-toc-title">文章目录</h2>
-  <div class="post-toc-content always-active">
-    <nav id="TableOfContents">
-  <ul>
-    <li>
-      <ul>
-        <li><a href="#1-日志压缩">1 日志压缩</a>
-          <ul>
-            <li><a href="#11-基于内存的状态机的快照">1.1 基于内存的状态机的快照</a></li>
-            <li><a href="#12-基于磁盘的状态机的快照">1.2 基于磁盘的状态机的快照</a></li>
-            <li><a href="#13-其它日志压缩">1.3 其它日志压缩</a></li>
-          </ul>
-        </li>
-        <li><a href="#2-性能优化">2 性能优化</a>
-          <ul>
-            <li><a href="#21-writing-to-the-leaders-disk-in-parallel">2.1 Writing to the leader’s disk in parallel</a></li>
-            <li><a href="#22-batch-和-pipeline">2.2 Batch 和 Pipeline</a></li>
-            <li><a href="#23-pre-vote">2.3 pre-vote</a></li>
-            <li><a href="#24-multiraft">2.4 MultiRaft</a></li>
-          </ul>
-        </li>
-        <li><a href="#reference">Reference</a></li>
-        <li><a href="#相关阅读">相关阅读</a></li>
-      </ul>
-    </li>
-  </ul>
-</nav>
-  </div>
-</div>
-    <div class="post-content">
-      <p>在上篇<a href="https://mp.weixin.qq.com/s/lUbVBVzvNVxhgbcHQBbkkQ">《条分缕析 Raft 算法》</a>中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。</p>
-<h2 id="1-日志压缩">1 日志压缩</h2>
+  <div class="post-content"><p>在上篇<a href="https://mp.weixin.qq.com/s/lUbVBVzvNVxhgbcHQBbkkQ">《条分缕析 Raft 算法》</a>中推导和梳理了 Raft 算法，但仍有一些细节没有包含到，这篇文章作为补充。</p>
+<h2 id="1-日志压缩">1 日志压缩<a hidden class="anchor" aria-hidden="true" href="#1-日志压缩">#</a></h2>
 <p>随着时间推移，存储的日志会越来越多，不但占据很多磁盘空间，服务器重启做日志重放也需要更多的时间。如果没有办法来压缩日志，将会导致可用性问题：要么磁盘空间被耗尽，要么花费太长时间启动。所以日志压缩是必要的。</p>
 <p>日志压缩的一般思路是，日志中的许多信息随着时间推移会变成过时的，可以丢弃。例如：一个将 x 设置为 2 的操作，如果在未来将 x 设置为了 3，那么 x=2 这个操作就过时了，可以丢弃。</p>
 <p>一旦日志记录被提交并应用于状态机，那么用于到达当前状态的中间状态和操作就不再需要了，它们可以被压缩掉。</p>
@@ -183,14 +303,16 @@
 <li><strong>将之前的 log 的维护责任从 Raft 转移到状态机</strong>。Raft 要保存最后被丢弃的记录的index和term，用于 <code>AppendEntries RPC </code>一致性检查。同时，也需要保存最新的配置信息：成员变更失败需要回退配置，最近的配置必须保存。</li>
 <li>一旦丢弃了前面部分的日志，状态机就承担两个新的责任：1. 如果服务器重启了，需要将最新的快照加载到状态机后再接受 log；此外，2. 需要向较慢的 follower(日志远落后于 Leader)发送一致的状态镜像。</li>
 </ul>
-<h3 id="11-基于内存的状态机的快照">1.1 基于内存的状态机的快照</h3>
+<h3 id="11-基于内存的状态机的快照">1.1 基于内存的状态机的快照<a hidden class="anchor" aria-hidden="true" href="#11-基于内存的状态机的快照">#</a></h3>
 <p>状态机的数据集小于 10GB 的时候选择 memory-based 状态机是合理的。</p>
-<p><img src="https://i.loli.net/2021/03/03/tAcXgHFsBaS2P4V.jpg" alt=""></p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/tAcXgHFsBaS2P4V.jpg" alt=""  />
+</p>
 <p>上图显示了 memory-based 状态机的基本想法：对内存的数据结构(树形或哈希等)进行序列化并存储，同时存储 Raft 重启需要的状态：最后一条记录的 index 和 term 以及该索引处的最新配置，然后这个 index 之前的日志和快照都可以丢弃了。</p>
 <p><strong>memory-based 状态机的快照的大部分工作是序列化内存中的数据结构</strong>。</p>
 <p>通过上面的介绍，Leader 可能偶尔需要把它的状态发送给慢 Followers 或新加入集群的服务器。快照信息通过 <code>InstallSnapshot RPC</code> 来传输。你肯定在论文中看过下图：</p>
-<p><img src="https://i.loli.net/2021/03/03/Zsaif9XzjgPo8Kb.jpg" alt=""></p>
-<h4 id="111-快照的并发性">1.1.1 快照的并发性</h4>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/Zsaif9XzjgPo8Kb.jpg" alt=""  />
+</p>
+<h4 id="111-快照的并发性">1.1.1 快照的并发性<a hidden class="anchor" aria-hidden="true" href="#111-快照的并发性">#</a></h4>
 <p>创建一个快照需要耗费很长时间，包括序列化和写入磁盘。</p>
 <blockquote>
 <p>例如，在今天的服务器上拷贝 10GB 的内存花费大约1秒钟，序列化它通常将花费更长的时间：即使 SSD 1秒钟也仅能写入大约 100MB。</p>
@@ -201,14 +323,14 @@
 <li>状态机可以用不可变的(immutable)数据结构来实现。因为状态机命令不会 in-place 的方式来修改状态(通常使用追加的方式)，快照任务可以引用之前状态的并把状态一致地写入到快照。</li>
 <li>另外，也可以使用操作系统的 copy-on-write。例如，在 Linux 上可以使用 fork 来复制父进程的整个地址空间，然后子进程就可以把状态机的状态写出并退出，整个过程中父进程都可以持续地提供服务。<a href="https://github.com/logcabin/logcabin">LogCabin</a>中当前使用的就是这种方法。</li>
 </ul>
-<h4 id="112-何时做快照">1.1.2 何时做快照</h4>
+<h4 id="112-何时做快照">1.1.2 何时做快照<a hidden class="anchor" aria-hidden="true" href="#112-何时做快照">#</a></h4>
 <p>服务器需要决定什么时候做快照。太过频繁地做快照，将会浪费磁盘带宽和其他资源；太不频繁地做快照，则有存储空间耗尽的风险，并且重启服务需要更长的重放日志时间。</p>
 <p>一个简单的策略是设置一个阈值，当日志大小超过阈值则做快照。然而，这会导致对于小型状态机时有着不必要的大日志。</p>
 <p>一个更好的方法是引入快照大小和日志大小的对比，如果日志超过快照好几倍，可能就需要做快照。但是在做快照之前计算快照的大小是困难并且繁重的，会引入额外负担。所以使用前一个快照的大小是比较合理的行为，一旦日志大小超过之前的快照的大小乘以扩展因子(expansion factor)，服务器就做快照。</p>
 <p>这个扩展因子权衡空间和带宽利用率。例如，扩展因子为 4 的话会有 20% 的带宽用于快照(每1byte 的快照写入有对应的 4bytes 的 log 写入)和大约 6 倍的硬盘空间使用(旧的快照+日志+新的快照)。</p>
 <p>快照仍然会导致 CPU 和磁盘的占用率突发，可以增加额外的磁盘来减轻该现象。</p>
 <p>同时，可以通过调度使得做快照对客户端请求没有影响。服务器需要协调保证在某一时刻集群只有小部分成员集同时在做快照。由于 Raft 是多数派成员构成的 commit，所以这样就不会影响请求的提交了。当 Leader 想做快照的时候，首先要先下台，让其他服务器选出另一个 Leader 接替工作。如果这个方法充分地可行，就可能消除快照的并发，服务器在快照期间其实是不可用的(这可能会造成集群的容错能力降低的问题)。这是一个令人兴奋的提升集群性能并降低实现机制的机会。（这里其实可以通过实现指定服务器做快照来优化，braft 里就有提到这点。）</p>
-<h4 id="113-实现的关注点">1.1.3 实现的关注点</h4>
+<h4 id="113-实现的关注点">1.1.3 实现的关注点<a hidden class="anchor" aria-hidden="true" href="#113-实现的关注点">#</a></h4>
 <p>这一节回顾快照的主要组件的实现并讨论实现的难点：</p>
 <ul>
 <li><strong>保存和加载快照</strong>：保存快照需要对其序列化并写入磁盘，而加载则是反序列化。通过流式接口(streaming interface)可以避免将整个快照缓冲到内存中。可能对流进行压缩并附带一个 checksum 比较好。LogCabin 先把快照写入一个临时文件，当写完并且刷到磁盘后，再把文件改名。这是为了避免server启动的时候加载到部分的快照。</li>
@@ -217,18 +339,18 @@
 <li><strong>通过 copy-on-write 并发地做快照</strong>：可能需要重新设计状态机或利用操作系统的 fork。LogCabin 当前使用的是 fork，相比于线程交互性很差，要使其正确工作也有一定的难度。然而，它的代码量很小，而且不需要修改状态机数据结构。</li>
 <li><strong>决定何时做快照</strong>：我们建议<strong>在开发的过程中每应用一条日志就做一个快照，这样便于快速定位问题</strong>。一旦实现完成，就需要增加一个更有效的机制选择什么时候做快照。</li>
 </ul>
-<h3 id="12-基于磁盘的状态机的快照">1.2 基于磁盘的状态机的快照</h3>
+<h3 id="12-基于磁盘的状态机的快照">1.2 基于磁盘的状态机的快照<a hidden class="anchor" aria-hidden="true" href="#12-基于磁盘的状态机的快照">#</a></h3>
 <p>对于几十或上百 GB 的状态机，需要使用磁盘作为主要存储。对于每一条记录，当其被提交并应用到状态机后，其实就可以被丢弃了，因为磁盘已经持久化存储了，可以理解为每条日志就做了一个快照。</p>
 <p>Disk-based 状态机的主要问题是，磁盘会导致性能不佳。在没有写缓冲的情况下，每应用一条命了都需要进行一次或多次随机磁盘写入，这会限制系统的整体吞吐量。</p>
 <p>Disk-based 状态机仍然需要支持向日志落后的 Follower 提供最新的快照，而写快照也要继续提供服务，所以仍然需要 copy-on-write 技术以在一定期间内保持一个一致地快照传输。幸运的是，磁盘总是被划分为逻辑块，因此在状态机中实现应该是直接的。基于磁盘的状态机也可以依靠操作系统的支持，例如 Linux 的 LVM 也可以用来创建快照。</p>
-<h4 id="121-增量清理的方法">1.2.1 增量清理的方法</h4>
+<h4 id="121-增量清理的方法">1.2.1 增量清理的方法<a hidden class="anchor" aria-hidden="true" href="#121-增量清理的方法">#</a></h4>
 <p>增量的方法做压缩如 log cleaning 或 LSM tree，是可能的。他们快照的实现会更复杂，但有如下优点：</p>
 <ul>
 <li>每次只操作数据的一部分，所以压缩的负载随着时间来看是均匀的。</li>
 <li>写入磁盘的效率更高。它们使用大范围的、连续的写入。递增清理的方法可以有选择的压缩磁盘中拥有最多可重复使用空间的部分，可以写入更少的数据。</li>
 <li>传递快照更为简单，因为它们不会 in-place 地修改磁盘的区域。</li>
 </ul>
-<h4 id="122-log-cleaning">1.2.2 Log cleaning</h4>
+<h4 id="122-log-cleaning">1.2.2 Log cleaning<a hidden class="anchor" aria-hidden="true" href="#122-log-cleaning">#</a></h4>
 <p>来自于 <a href="https://people.eecs.berkeley.edu/~brewer/cs262/LFS.pdf">The Design and Implementation of a Log-Structured File System</a>。</p>
 <p>Log cleaning 写入时直接追加，日志被切分为多个连续的 Segments。每一个 segment 通过以下三个步骤进行压缩：</p>
 <ul>
@@ -239,26 +361,29 @@
 <p>为了最小化对正常操作的影响，这个过程应该并发地做。</p>
 <p>由于将有效的记录转存到日志的头部，日志出现乱序，可以包含附加的信息(比如 version number)以在日志应用的时候重建正确的顺序。</p>
 <p>选择哪些段做清理的策略对性能有非常大的影响。Log cleaning 建立了一个模型，不仅考虑live entry 的占比，同时考虑这些 entry 会存活多长时间。<strong>但不幸的是，每个状态机的 live entry 会有所不同</strong>。</p>
-<h4 id="123-lsm-tree">1.2.3 LSM tree</h4>
+<h4 id="123-lsm-tree">1.2.3 LSM tree<a hidden class="anchor" aria-hidden="true" href="#123-lsm-tree">#</a></h4>
 <p>LSM tree 由于 BigTable 的提出被广泛使用。</p>
 <p>LSM tree 是树型的数据结构，存储有序的键值对。在高层次上和 Log cleaning 一样：大的顺序写并且不 in-place 地修改磁盘上的数据。。然而，LSM tree 并没有在日志中维护所有状态，而是重新组织状态以便更好地进行随机读。</p>
 <p>典型的 LSM tree 将最近的写入在磁盘上保持一份小的 log。当 log 达到一定的大小后，对 key 进行排序并且写入一个叫做 run 的文件中。Runs 不会 in-place 修改，但是会周期性地对 runs 进行 merge，产生新的 runs 并丢弃旧的，merge 的过程像 merge sort。</p>
-<p><img src="https://i.loli.net/2021/03/03/oWIq71g9eakLO6r.jpg" alt=""></p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/oWIq71g9eakLO6r.jpg" alt=""  />
+</p>
 <p>在正常操作期间，状态机可以直接在这些数据上操作。对于读一个 key 来说，首先检查是否在最近的 log 中有修改，之后检查每一个 run。为了避免对每一个 run 做 key 的检查，一些系统对每一个 run 创建了 bloom filter。</p>
-<h4 id="124-raft-中的-log-cleaning-和-lsm-tree">1.2.4 Raft 中的 Log cleaning 和 LSM tree</h4>
+<h4 id="124-raft-中的-log-cleaning-和-lsm-tree">1.2.4 Raft 中的 Log cleaning 和 LSM tree<a hidden class="anchor" aria-hidden="true" href="#124-raft-中的-log-cleaning-和-lsm-tree">#</a></h4>
 <p>LogCabin 还未实现 Log cleaning 或 LSM tree，把 LSM tree 应用到 Raft 是直截了当的，因为 Raft 日志已经将最近的记录持久地存储在磁盘上，LSM tree 可以将最近的数据以更方便的树型保存在内存中，这将提高查找的性能。并且当 Raft 日志达到指定大小的时候，这个树按顺序写到磁盘作为一个新的 run。传输状态的时候 Leader 需要把所有的 run 发送给Follower(不包含内存中的树)；幸运的是，runs 都是不可变的，所以不必担心传输过程中 runs 被修改。</p>
 <p>把 Log cleaning 应用到 Raft 就不是这么明显了。</p>
-<p><img src="https://i.loli.net/2021/03/03/KwAeYbOmDtnuWoy.jpg" alt=""></p>
-<h3 id="13-其它日志压缩">1.3 其它日志压缩</h3>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/KwAeYbOmDtnuWoy.jpg" alt=""  />
+</p>
+<h3 id="13-其它日志压缩">1.3 其它日志压缩<a hidden class="anchor" aria-hidden="true" href="#13-其它日志压缩">#</a></h3>
 <p>略。</p>
-<h2 id="2-性能优化">2 性能优化</h2>
-<h3 id="21-writing-to-the-leaders-disk-in-parallel">2.1 Writing to the leader’s disk in parallel</h3>
+<h2 id="2-性能优化">2 性能优化<a hidden class="anchor" aria-hidden="true" href="#2-性能优化">#</a></h2>
+<h3 id="21-writing-to-the-leaders-disk-in-parallel">2.1 Writing to the leader’s disk in parallel<a hidden class="anchor" aria-hidden="true" href="#21-writing-to-the-leaders-disk-in-parallel">#</a></h3>
 <p>在前面的实现中，Leader 将日志写到磁盘后，再将该日志复制到它的 Follower，然后等待 Follower 将该日志写到他们的磁盘上。这里出现了两次连续的磁盘写入等待，这将导致显著的延迟。</p>
 <p>Leader 可以在向 Follower 并行复制日志的同时写入自己的磁盘，如图：</p>
-<p><img src="https://i.loli.net/2021/03/03/3Ztc6qVuaB7bXKO.jpg" alt=""></p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/3Ztc6qVuaB7bXKO.jpg" alt=""  />
+</p>
 <p>a 是没有并行优化的，而 b 是进行并行优化的。</p>
 <p>如果多数派 Follower 已经写入磁盘，Leader 甚至可以在该记录写入自己的磁盘之前就提交，这仍然是安全的。</p>
-<h3 id="22-batch-和-pipeline">2.2 Batch 和 Pipeline</h3>
+<h3 id="22-batch-和-pipeline">2.2 Batch 和 Pipeline<a hidden class="anchor" aria-hidden="true" href="#22-batch-和-pipeline">#</a></h3>
 <p>Raft 支持 Batch 和 Pipeline，这两者对性能提升都很重要。</p>
 <ul>
 <li>Batch：Leader 可以一次收集多个客户端 requests，然后一批发送给 Follower。当然，我们也需要有一个最大发送 size 来限制每次最多可以发送多少数据，LogCabin 使用 1M 大小。</li>
@@ -269,16 +394,18 @@
 <p>如果 Leader 与一个 Follower 共用一个连接使用 pipeline 的话, 那么效果会是怎样的呢?其实这样和 Batch 没有多大区别，tcp 层面已经是串行的了，tcp 有滑动窗口来做 batch，同时单条连接保证了消息很少会乱序。</p>
 <p>那么，如果使用多线程连接的话可能存在什么问题？即使因为在多个连接中不能保证有序，但是大部分情况还是先发送的先到达；即使后发送的先到达了，由于有 <code>AppendEntries RPC</code> 一致性检查的存在，后发送的自然会失败，失败后重试即可。</p>
 <p>Raft 系统的整体性能在很大程度上取决于如何安排 batch 和 pipeline。如果在高负载的情况下，一个 batch 中积累的请求数量不够，整体处理效率就会很低，导致低吞吐量和高延迟。另一方面，如果在一个 batch 中积累了太多的请求，延迟将不必要地变高，因为早期的请求要等待后来的请求到达。</p>
-<h3 id="23-pre-vote">2.3 pre-vote</h3>
+<h3 id="23-pre-vote">2.3 pre-vote<a hidden class="anchor" aria-hidden="true" href="#23-pre-vote">#</a></h3>
 <p>网络分区会导致某个节点的数据与集群最新数据差距拉大，但是 term 因为不断尝试选主而变得很大。网络恢复之后，Leader 向其进行日志复制时，就会导致 Leader 因为 term 较小而下台。这种情况可以引入 pre-vote 来避免。Follower 在转变为 Candidate 之前，先与集群节点通信，获得集群 Leader 是否存活的信息，如果当前集群有 Leader 存活，Follower 就不会转变为 Candidate，也不会增加term。</p>
-<h3 id="24-multiraft">2.4 MultiRaft</h3>
+<h3 id="24-multiraft">2.4 MultiRaft<a hidden class="anchor" aria-hidden="true" href="#24-multiraft">#</a></h3>
 <p>来自 CockroachDB 的优化：https://www.cockroachlabs.com/blog/scaling-RAFT/</p>
 <p>Raft 的 Leader 向 Follower 的心跳间隔一般都较小，在 100ms 粒度，当复制实例数较多的时候，心跳包的数量就呈指数增长。如图：</p>
-<p><img src="https://i.loli.net/2021/03/03/1FdxmHgjYuTwOqk.jpg" alt=""></p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/1FdxmHgjYuTwOqk.jpg" alt=""  />
+</p>
 <p>这里将复制组之间的心跳合并到节点之间的心跳。如图：</p>
-<p><img src="https://i.loli.net/2021/03/03/zcNXjMZSORmeyn1.jpg" alt=""></p>
+<p><img loading="lazy" src="https://i.loli.net/2021/03/03/zcNXjMZSORmeyn1.jpg" alt=""  />
+</p>
 <p><a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">braft 提供了静默模式</a>：通常复制组不需要频繁的切换 Leader，我们可以将主动 Leader Election 的功能关闭，这样就不需要维护 Leader Lease 的心跳了。复制组依靠业务 Master 进行被动触发 Leader Election，这个可以只在 Leader 节点宕机时触发，整体的心跳数就从复制实例数降为节点数。</p>
-<h2 id="reference">Reference</h2>
+<h2 id="reference">Reference<a hidden class="anchor" aria-hidden="true" href="#reference">#</a></h2>
 <ol>
 <li>
 <p><a href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf">CONSENSUS BRIDGING THEORY AND PRACTICE</a>: <a href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf">https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf</a></p>
@@ -296,142 +423,193 @@
 <p><a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">RAFT介绍</a>: <a href="https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md">https://github.com/baidu/braft/blob/master/docs/cn/raft_protocol.md</a></p>
 </li>
 </ol>
-<h2 id="相关阅读">相关阅读</h2>
+<h2 id="相关阅读">相关阅读<a hidden class="anchor" aria-hidden="true" href="#相关阅读">#</a></h2>
 
-    </div>
 
-    <div class="post-copyright">
-  <p class="copyright-item">
-    <span class="item-title">文章作者</span>
-    <span class="item-content">Tangwz</span>
-  </p>
-  <p class="copyright-item">
-    <span class="item-title">上次更新</span>
-    <span class="item-content">
-        2021-02-19
-        
-    </span>
-  </p>
-  
-  <p class="copyright-item">
-    <span class="item-title">许可协议</span>
-    <span class="item-content">本作品采用<a rel="license noopener" href="https://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank">知识共享署名 4.0 国际许可协议</a>。转载时请注明原文链接。</span>
-  </p>
-</div>
-<div class="post-reward">
-  <input type="checkbox" name="reward" id="reward" hidden />
-  <label class="reward-button" for="reward">赞赏支持</label>
-  <div class="qr-code">
-    
-    <label class="qr-code-image" for="reward">
-        <img class="image" src="/media/images/reward/wechat.JPG">
-        <span>微信打赏</span>
-      </label>
-    <label class="qr-code-image" for="reward">
-        <img class="image" src="/path/to/your/alipay-qr-code.png">
-        <span>支付宝打赏</span>
-      </label>
   </div>
-</div><div class="post-wechat">
-    <h1>微信公众号</h1>
-    <img src="https://i.loli.net/2020/08/30/1TBdqh9rtgWDUoz.png">
-  </div><footer class="post-footer">
-      <div class="post-tags">
-          <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a>
-          </div>
-      <nav class="post-nav">
-        <a class="prev" href="/post/cpp-coroutine/">
-            <i class="iconfont icon-left"></i>
-            <span class="prev-text nav-default">如何编写 C&#43;&#43; 20 协程(Coroutines)</span>
-            <span class="prev-text nav-mobile">上一篇</span>
-          </a>
-        <a class="next" href="/post/raft/">
-            <span class="next-text nav-default">条分缕析 Raft 算法</span>
-            <span class="next-text nav-mobile">下一篇</span>
-            <i class="iconfont icon-right"></i>
-          </a>
-      </nav>
-    </footer>
-  </article>
-        </div>
-        
 
-  
+  <footer class="post-footer">
+    <ul class="post-tags">
+      <li><a href="https://tangwz.com/tags/%E5%88%86%E5%B8%83%E5%BC%8F/">分布式</a></li>
+    </ul>
+<nav class="paginav">
+  <a class="prev" href="https://tangwz.com/post/cpp-coroutine/cpp-coroutine/">
+    <span class="title">« Prev Page</span>
+    <br>
+    <span>如何编写 C&#43;&#43; 20 协程(Coroutines)</span>
+  </a>
+  <a class="next" href="https://tangwz.com/post/raft/">
+    <span class="title">Next Page »</span>
+    <br>
+    <span>条分缕析 Raft 算法</span>
+  </a>
+</nav>
 
-  
 
-      </div>
+<div class="share-buttons">
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on twitter"
+        href="https://twitter.com/intent/tweet/?text=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f&amp;hashtags=%e5%88%86%e5%b8%83%e5%bc%8f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-253.927,424.544c135.939,0 210.268,-112.643 210.268,-210.268c0,-3.218 0,-6.437 -0.153,-9.502c14.406,-10.421 26.973,-23.448 36.935,-38.314c-13.18,5.824 -27.433,9.809 -42.452,11.648c15.326,-9.196 26.973,-23.602 32.49,-40.92c-14.252,8.429 -30.038,14.56 -46.896,17.931c-13.487,-14.406 -32.644,-23.295 -53.946,-23.295c-40.767,0 -73.87,33.104 -73.87,73.87c0,5.824 0.613,11.494 1.992,16.858c-61.456,-3.065 -115.862,-32.49 -152.337,-77.241c-6.284,10.881 -9.962,23.601 -9.962,37.088c0,25.594 13.027,48.276 32.95,61.456c-12.107,-0.307 -23.448,-3.678 -33.41,-9.196l0,0.92c0,35.862 25.441,65.594 59.311,72.49c-6.13,1.686 -12.72,2.606 -19.464,2.606c-4.751,0 -9.348,-0.46 -13.946,-1.38c9.349,29.426 36.628,50.728 68.965,51.341c-25.287,19.771 -57.164,31.571 -91.8,31.571c-5.977,0 -11.801,-0.306 -17.625,-1.073c32.337,21.15 71.264,33.41 112.95,33.41Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on linkedin"
+        href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f&amp;title=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96&amp;summary=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96&amp;source=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-288.985,423.278l0,-225.717l-75.04,0l0,225.717l75.04,0Zm270.539,0l0,-129.439c0,-69.333 -37.018,-101.586 -86.381,-101.586c-39.804,0 -57.634,21.891 -67.617,37.266l0,-31.958l-75.021,0c0.995,21.181 0,225.717 0,225.717l75.02,0l0,-126.056c0,-6.748 0.486,-13.492 2.474,-18.315c5.414,-13.475 17.767,-27.434 38.494,-27.434c27.135,0 38.007,20.707 38.007,51.037l0,120.768l75.024,0Zm-307.552,-334.556c-25.674,0 -42.448,16.879 -42.448,39.002c0,21.658 16.264,39.002 41.455,39.002l0.484,0c26.165,0 42.452,-17.344 42.452,-39.002c-0.485,-22.092 -16.241,-38.954 -41.943,-39.002Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on reddit"
+        href="https://reddit.com/submit?url=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f&title=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-3.446,265.638c0,-22.964 -18.616,-41.58 -41.58,-41.58c-11.211,0 -21.361,4.457 -28.841,11.666c-28.424,-20.508 -67.586,-33.757 -111.204,-35.278l18.941,-89.121l61.884,13.157c0.756,15.734 13.642,28.29 29.56,28.29c16.407,0 29.706,-13.299 29.706,-29.701c0,-16.403 -13.299,-29.702 -29.706,-29.702c-11.666,0 -21.657,6.792 -26.515,16.578l-69.105,-14.69c-1.922,-0.418 -3.939,-0.042 -5.585,1.036c-1.658,1.073 -2.811,2.761 -3.224,4.686l-21.152,99.438c-44.258,1.228 -84.046,14.494 -112.837,35.232c-7.468,-7.164 -17.589,-11.591 -28.757,-11.591c-22.965,0 -41.585,18.616 -41.585,41.58c0,16.896 10.095,31.41 24.568,37.918c-0.639,4.135 -0.99,8.328 -0.99,12.576c0,63.977 74.469,115.836 166.33,115.836c91.861,0 166.334,-51.859 166.334,-115.836c0,-4.218 -0.347,-8.387 -0.977,-12.493c14.564,-6.47 24.735,-21.034 24.735,-38.001Zm-119.474,108.193c-20.27,20.241 -59.115,21.816 -70.534,21.816c-11.428,0 -50.277,-1.575 -70.522,-21.82c-3.007,-3.008 -3.007,-7.882 0,-10.889c3.003,-2.999 7.882,-3.003 10.885,0c12.777,12.781 40.11,17.317 59.637,17.317c19.522,0 46.86,-4.536 59.657,-17.321c3.016,-2.999 7.886,-2.995 10.885,0.008c3.008,3.011 3.003,7.882 -0.008,10.889Zm-5.23,-48.781c-16.373,0 -29.701,-13.324 -29.701,-29.698c0,-16.381 13.328,-29.714 29.701,-29.714c16.378,0 29.706,13.333 29.706,29.714c0,16.374 -13.328,29.698 -29.706,29.698Zm-160.386,-29.702c0,-16.381 13.328,-29.71 29.714,-29.71c16.369,0 29.689,13.329 29.689,29.71c0,16.373 -13.32,29.693 -29.689,29.693c-16.386,0 -29.714,-13.32 -29.714,-29.693Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on facebook"
+        href="https://facebook.com/sharer/sharer.php?u=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-106.468,0l0,-192.915l66.6,0l12.672,-82.621l-79.272,0l0,-53.617c0,-22.603 11.073,-44.636 46.58,-44.636l36.042,0l0,-70.34c0,0 -32.71,-5.582 -63.982,-5.582c-65.288,0 -107.96,39.569 -107.96,111.204l0,62.971l-72.573,0l0,82.621l72.573,0l0,192.915l-191.104,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on whatsapp"
+        href="https://api.whatsapp.com/send?text=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96%20-%20https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f">
+        <svg version="1.1" viewBox="0 0 512 512" xml:space="preserve">
+            <path
+                d="M449.446,0c34.525,0 62.554,28.03 62.554,62.554l0,386.892c0,34.524 -28.03,62.554 -62.554,62.554l-386.892,0c-34.524,0 -62.554,-28.03 -62.554,-62.554l0,-386.892c0,-34.524 28.029,-62.554 62.554,-62.554l386.892,0Zm-58.673,127.703c-33.842,-33.881 -78.847,-52.548 -126.798,-52.568c-98.799,0 -179.21,80.405 -179.249,179.234c-0.013,31.593 8.241,62.428 23.927,89.612l-25.429,92.884l95.021,-24.925c26.181,14.28 55.659,21.807 85.658,21.816l0.074,0c98.789,0 179.206,-80.413 179.247,-179.243c0.018,-47.895 -18.61,-92.93 -52.451,-126.81Zm-126.797,275.782l-0.06,0c-26.734,-0.01 -52.954,-7.193 -75.828,-20.767l-5.441,-3.229l-56.386,14.792l15.05,-54.977l-3.542,-5.637c-14.913,-23.72 -22.791,-51.136 -22.779,-79.287c0.033,-82.142 66.867,-148.971 149.046,-148.971c39.793,0.014 77.199,15.531 105.329,43.692c28.128,28.16 43.609,65.592 43.594,105.4c-0.034,82.149 -66.866,148.983 -148.983,148.984Zm81.721,-111.581c-4.479,-2.242 -26.499,-13.075 -30.604,-14.571c-4.105,-1.495 -7.091,-2.241 -10.077,2.241c-2.986,4.483 -11.569,14.572 -14.182,17.562c-2.612,2.988 -5.225,3.364 -9.703,1.12c-4.479,-2.241 -18.91,-6.97 -36.017,-22.23c-13.314,-11.876 -22.304,-26.542 -24.916,-31.026c-2.612,-4.484 -0.279,-6.908 1.963,-9.14c2.016,-2.007 4.48,-5.232 6.719,-7.847c2.24,-2.615 2.986,-4.484 4.479,-7.472c1.493,-2.99 0.747,-5.604 -0.374,-7.846c-1.119,-2.241 -10.077,-24.288 -13.809,-33.256c-3.635,-8.733 -7.327,-7.55 -10.077,-7.688c-2.609,-0.13 -5.598,-0.158 -8.583,-0.158c-2.986,0 -7.839,1.121 -11.944,5.604c-4.105,4.484 -15.675,15.32 -15.675,37.364c0,22.046 16.048,43.342 18.287,46.332c2.24,2.99 31.582,48.227 76.511,67.627c10.685,4.615 19.028,7.371 25.533,9.434c10.728,3.41 20.492,2.929 28.209,1.775c8.605,-1.285 26.499,-10.833 30.231,-21.295c3.732,-10.464 3.732,-19.431 2.612,-21.298c-1.119,-1.869 -4.105,-2.99 -8.583,-5.232Z" />
+        </svg>
+    </a>
+    <a target="_blank" rel="noopener noreferrer" aria-label="share 条分缕析 Raft 算法(续)：日志压缩和性能优化 on telegram"
+        href="https://telegram.me/share/url?text=%e6%9d%a1%e5%88%86%e7%bc%95%e6%9e%90%20Raft%20%e7%ae%97%e6%b3%95%28%e7%bb%ad%29%ef%bc%9a%e6%97%a5%e5%bf%97%e5%8e%8b%e7%bc%a9%e5%92%8c%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96&amp;url=https%3a%2f%2ftangwz.com%2fpost%2fraft-extension%2f">
+        <svg version="1.1" xml:space="preserve" viewBox="2 2 28 28">
+            <path
+                d="M26.49,29.86H5.5a3.37,3.37,0,0,1-2.47-1,3.35,3.35,0,0,1-1-2.47V5.48A3.36,3.36,0,0,1,3,3,3.37,3.37,0,0,1,5.5,2h21A3.38,3.38,0,0,1,29,3a3.36,3.36,0,0,1,1,2.46V26.37a3.35,3.35,0,0,1-1,2.47A3.38,3.38,0,0,1,26.49,29.86Zm-5.38-6.71a.79.79,0,0,0,.85-.66L24.73,9.24a.55.55,0,0,0-.18-.46.62.62,0,0,0-.41-.17q-.08,0-16.53,6.11a.59.59,0,0,0-.41.59.57.57,0,0,0,.43.52l4,1.24,1.61,4.83a.62.62,0,0,0,.63.43.56.56,0,0,0,.4-.17L16.54,20l4.09,3A.9.9,0,0,0,21.11,23.15ZM13.8,20.71l-1.21-4q8.72-5.55,8.78-5.55c.15,0,.23,0,.23.16a.18.18,0,0,1,0,.06s-2.51,2.3-7.52,6.8Z" />
+        </svg>
+    </a>
+</div>
+
+  </footer>
+</article>
     </main>
-
-    <footer id="footer" class="footer">
-      <div class="social-links">
-      <a href="https://stackoverflow.com/users/4805962/tangwz" class="iconfont icon-stack-overflow" title="stack-overflow"></a>
-      <a href="https://github.com/tangwz" class="iconfont icon-github" title="github"></a>
-      <a href="https://www.zhihu.com/people/duoketang" class="iconfont icon-zhihu" title="zhihu"></a>
-      <a href="https://www.douban.com/people/duoketang/" class="iconfont icon-douban" title="douban"></a>
-  <a href="https://tangwz.com/index.xml" type="application/rss+xml" class="iconfont icon-rss" title="rss"></a>
-</div>
-
-<div class="copyright">
-  <span class="power-by">
-    由 <a class="hexo-link" href="https://gohugo.io">Hugo</a> 强力驱动
-  </span>
-  <span class="division">|</span>
-  <span class="theme-info">
-    主题 - 
-    <a class="theme-link" href="https://github.com/olOwOlo/hugo-theme-even">Even</a>
-  </span>
-
-  
-
-  <span class="copyright-year">
-    &copy; 
-    2019 - 
-    2021
-    <span class="heart">
-      <i class="iconfont icon-heart"></i>
+    
+<footer class="footer">
+    <span>&copy; 2022 <a href="https://tangwz.com/">多颗糖</a></span>
+    <span>
+        Powered by
+        <a href="https://gohugo.io/" rel="noopener noreferrer" target="_blank">Hugo</a> &
+        <a href="https://git.io/hugopapermod" rel="noopener" target="_blank">PaperMod</a>
     </span>
-    <span class="author">Tangwz</span>
-  </span>
-</div>
-    </footer>
+</footer>
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
 
-    <div class="back-to-top" id="back-to-top">
-      <i class="iconfont icon-up"></i>
-    </div>
-  </div>
-  <script type="text/javascript" src="/lib/jquery/jquery-3.2.1.min.js"></script>
-  <script type="text/javascript" src="/lib/slideout/slideout-1.0.1.min.js"></script>
-  <script type="text/javascript" src="/lib/fancybox/jquery.fancybox-3.1.20.min.js"></script>
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
 
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
 
-
-<script type="text/javascript" src="/js/main.min.d7b7ada643c9c1a983026e177f141f7363b4640d619caf01d8831a6718cd44ea.js"></script>
-  <script type="text/javascript">
-    window.MathJax = {
-      showProcessingMessages: false,
-      messageStyle: 'none'
-    };
-  </script>
-  <script async src="https://cdn.jsdelivr.net/npm/mathjax@2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"  integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script>
-
-
-<script type="application/javascript">
-var doNotTrack = false;
-if (!doNotTrack) {
-	window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
-	ga('create', 'UA-72128068-1', 'auto');
-	ga('set', 'anonymizeIp', true);
-	ga('send', 'pageview');
-}
 </script>
-<script async src='https://www.google-analytics.com/analytics.js'></script>
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
 
+</script>
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
 
+</script>
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
 
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerText = 'copy';
 
+        function copyingDone() {
+            copybutton.innerText = 'copied!';
+            setTimeout(() => {
+                copybutton.innerText = 'copy';
+            }, 2000);
+        }
 
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
 
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
 
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
 </body>
+
 </html>
