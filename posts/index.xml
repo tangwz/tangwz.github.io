@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on 多颗糖(duoketang)</title>
+    <link>https://tangwz.com/posts/</link>
+    <description>Recent content in Posts on 多颗糖(duoketang)</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-cn</language>
+    <lastBuildDate>Sat, 08 Oct 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/posts/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>如何编写 C&#43;&#43; 20 协程(Coroutines)</title>
+      <link>https://tangwz.com/posts/202103-cpp-coroutine/</link>
+      <pubDate>Sat, 06 Mar 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202103-cpp-coroutine/</guid>
+      <description>C++20 带着 Coroutines 来了！ 花了一两周的时间后，我想写写 C++20 协程的基本用法，</description>
+    </item>
+    
+    <item>
+      <title>条分缕析 Raft 算法(续)：日志压缩和性能优化</title>
+      <link>https://tangwz.com/posts/202102-raft-extension/</link>
+      <pubDate>Fri, 19 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202102-raft-extension/</guid>
+      <description>在上篇《条分缕析 Raft 算法》中推导和梳理了 Raft 算法，但仍有一些细节</description>
+    </item>
+    
+    <item>
+      <title>条分缕析 Raft 算法</title>
+      <link>https://tangwz.com/posts/202102-raft/</link>
+      <pubDate>Mon, 01 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202102-raft/</guid>
+      <description>本文整理自 Ongaro 在 Youtube 上的视频。 目标 # Raft 的目标（或者说是分布式共识</description>
+    </item>
+    
+    <item>
+      <title>软件架构基础 5 架构特性识别与实战: 订餐系统</title>
+      <link>https://tangwz.com/posts/202101-fosa5/</link>
+      <pubDate>Mon, 25 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202101-fosa5/</guid>
+      <description>架构师一般从三个方面来发现架构特性： 领域关注(Domain Concerns)</description>
+    </item>
+    
+    <item>
+      <title>软件架构基础 4: 你的架构需要考虑的架构特性</title>
+      <link>https://tangwz.com/posts/202101-fosa4/</link>
+      <pubDate>Sat, 16 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202101-fosa4/</guid>
+      <description>一个公司决定用软件解决一个特定的问题，公司会收集该系统的需求</description>
+    </item>
+    
+    <item>
+      <title> 软件架构基础 3: 什么是好的模块化代码？高内聚、低耦合如何衡量？</title>
+      <link>https://tangwz.com/posts/202101-fosa3/</link>
+      <pubDate>Thu, 14 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202101-fosa3/</guid>
+      <description>0. 写在前面 # 什么是好的代码？好的代码应该模块化。 王垠在其《编</description>
+    </item>
+    
+    <item>
+      <title> 软件架构基础 2：架构思维</title>
+      <link>https://tangwz.com/posts/202101-fosa2/</link>
+      <pubDate>Fri, 08 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202101-fosa2/</guid>
+      <description>架构思维指用架构的眼光和观点来看待事物，主要包括： 理解软件架</description>
+    </item>
+    
+    <item>
+      <title> 软件架构基础 1：基本介绍</title>
+      <link>https://tangwz.com/posts/202101-fosa1/</link>
+      <pubDate>Thu, 07 Jan 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202101-fosa1/</guid>
+      <description>《软件架构基础（Fundamentals of Software Architec</description>
+    </item>
+    
+    <item>
+      <title>Golang 实现 Paxos 分布式共识算法</title>
+      <link>https://tangwz.com/posts/202012-impl-basic-paxos/impl-basic-paxos/</link>
+      <pubDate>Sun, 13 Dec 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202012-impl-basic-paxos/impl-basic-paxos/</guid>
+      <description>前文《理解 Paxos》只包含伪代码，帮助了理解但又不够爽，既</description>
+    </item>
+    
+    <item>
+      <title>Leveldb 基本介绍和使用指南</title>
+      <link>https://tangwz.com/posts/202011-leveldb-index/leveldb-index/</link>
+      <pubDate>Mon, 30 Nov 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202011-leveldb-index/leveldb-index/</guid>
+      <description>leveldb 是一个持久化的 key/value 存储，key 和 value 都是任意的字节数组(byt</description>
+    </item>
+    
+    <item>
+      <title>系统设计那些事儿：硬盘 I/O</title>
+      <link>https://tangwz.com/posts/202011-disk/disk/</link>
+      <pubDate>Thu, 26 Nov 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202011-disk/disk/</guid>
+      <description>数据库系统总会涉及非易失性存储，我们需要知道一个典型的计算机</description>
+    </item>
+    
+    <item>
+      <title>用 Raft 的方式理解 Multi-Paxos</title>
+      <link>https://tangwz.com/posts/202011-understanding-multi-paxos/understanding-multi-paxos/</link>
+      <pubDate>Sun, 15 Nov 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202011-understanding-multi-paxos/understanding-multi-paxos/</guid>
+      <description>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，</description>
+    </item>
+    
+    <item>
+      <title>Raft 作者出的 Paxos 的试题</title>
+      <link>https://tangwz.com/posts/202010-paxos-exam/paxos-exam/</link>
+      <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202010-paxos-exam/paxos-exam/</guid>
+      <description>试题 # 1. # (4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志</description>
+    </item>
+    
+    <item>
+      <title>Raft 作者亲自出的 Raft 试题，你能做对几道？</title>
+      <link>https://tangwz.com/posts/202010-raft-exam/raft-exam/</link>
+      <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202010-raft-exam/raft-exam/</guid>
+      <description>试题 # 1. # （4 分）下面的每张图都显示了一台 Raft 服务器上可能存储</description>
+    </item>
+    
+    <item>
+      <title>Paxos 的变种（一）：Multi-Paxos</title>
+      <link>https://tangwz.com/posts/202010-multi-paxos/multi-paxos/</link>
+      <pubDate>Sun, 18 Oct 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202010-multi-paxos/multi-paxos/</guid>
+      <description>分布式系统为了实现多副本状态机（Replicated state mac</description>
+    </item>
+    
+    <item>
+      <title>理解 Paxos（含伪代码）</title>
+      <link>https://tangwz.com/posts/202009-basic-paxos/basic-paxos/</link>
+      <pubDate>Tue, 29 Sep 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202009-basic-paxos/basic-paxos/</guid>
+      <description>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos. 引言 # 上文我们</description>
+    </item>
+    
+    <item>
+      <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
+      <link>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</link>
+      <pubDate>Sun, 13 Sep 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</guid>
+      <description>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主</description>
+    </item>
+    
+    <item>
+      <title>分布式系统的核心：共识问题</title>
+      <link>https://tangwz.com/posts/202009-consensus/consensus/</link>
+      <pubDate>Sun, 06 Sep 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202009-consensus/consensus/</guid>
+      <description>混乱的“一致性”问题 # Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的</description>
+    </item>
+    
+    <item>
+      <title>认识分布式系统</title>
+      <link>https://tangwz.com/posts/202008-intro-distributed-system/</link>
+      <pubDate>Tue, 18 Aug 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://tangwz.com/posts/202008-intro-distributed-system/</guid>
+      <description>Google “三驾马车”论文发布以后，“大数据”和“分布式”就成了各种</description>
+    </item>
+    
+  </channel>
+</rss>
