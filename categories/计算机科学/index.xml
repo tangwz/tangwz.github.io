@@ -27,91 +27,91 @@
     
     <item>
       <title>Golang 实现 Paxos 分布式共识算法</title>
-      <link>https://tangwz.com/posts/202012-impl-basic-paxos/impl-basic-paxos/</link>
+      <link>https://tangwz.com/posts/202012-impl-basic-paxos/</link>
       <pubDate>Sun, 13 Dec 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202012-impl-basic-paxos/impl-basic-paxos/</guid>
+      <guid>https://tangwz.com/posts/202012-impl-basic-paxos/</guid>
       <description>前文《理解 Paxos》只包含伪代码，帮助了理解但又不够爽，既</description>
     </item>
     
     <item>
       <title>Leveldb 基本介绍和使用指南</title>
-      <link>https://tangwz.com/posts/202011-leveldb-index/leveldb-index/</link>
+      <link>https://tangwz.com/posts/202011-leveldb-index/</link>
       <pubDate>Mon, 30 Nov 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202011-leveldb-index/leveldb-index/</guid>
+      <guid>https://tangwz.com/posts/202011-leveldb-index/</guid>
       <description>leveldb 是一个持久化的 key/value 存储，key 和 value 都是任意的字节数组(byt</description>
     </item>
     
     <item>
       <title>系统设计那些事儿：硬盘 I/O</title>
-      <link>https://tangwz.com/posts/202011-disk/disk/</link>
+      <link>https://tangwz.com/posts/202011-disk/</link>
       <pubDate>Thu, 26 Nov 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202011-disk/disk/</guid>
+      <guid>https://tangwz.com/posts/202011-disk/</guid>
       <description>数据库系统总会涉及非易失性存储，我们需要知道一个典型的计算机</description>
     </item>
     
     <item>
       <title>用 Raft 的方式理解 Multi-Paxos</title>
-      <link>https://tangwz.com/posts/202011-understanding-multi-paxos/understanding-multi-paxos/</link>
+      <link>https://tangwz.com/posts/202011-understanding-multi-paxos/</link>
       <pubDate>Sun, 15 Nov 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202011-understanding-multi-paxos/understanding-multi-paxos/</guid>
+      <guid>https://tangwz.com/posts/202011-understanding-multi-paxos/</guid>
       <description>Multi-Paxos 在文献中并没有准确的实现细节，这里提供一个相对完整的规范，</description>
     </item>
     
     <item>
       <title>Raft 作者出的 Paxos 的试题</title>
-      <link>https://tangwz.com/posts/202010-paxos-exam/paxos-exam/</link>
+      <link>https://tangwz.com/posts/202010-paxos-exam/</link>
       <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202010-paxos-exam/paxos-exam/</guid>
+      <guid>https://tangwz.com/posts/202010-paxos-exam/</guid>
       <description>试题 # 1. # (4 分）下面的每张图都显示了一种 Multi-Paxos 服务器上可能的日志</description>
     </item>
     
     <item>
       <title>Raft 作者亲自出的 Raft 试题，你能做对几道？</title>
-      <link>https://tangwz.com/posts/202010-raft-exam/raft-exam/</link>
+      <link>https://tangwz.com/posts/202010-raft-exam/</link>
       <pubDate>Mon, 26 Oct 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202010-raft-exam/raft-exam/</guid>
+      <guid>https://tangwz.com/posts/202010-raft-exam/</guid>
       <description>试题 # 1. # （4 分）下面的每张图都显示了一台 Raft 服务器上可能存储</description>
     </item>
     
     <item>
       <title>Paxos 的变种（一）：Multi-Paxos</title>
-      <link>https://tangwz.com/posts/202010-multi-paxos/multi-paxos/</link>
+      <link>https://tangwz.com/posts/202010-multi-paxos/</link>
       <pubDate>Sun, 18 Oct 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202010-multi-paxos/multi-paxos/</guid>
+      <guid>https://tangwz.com/posts/202010-multi-paxos/</guid>
       <description>分布式系统为了实现多副本状态机（Replicated state mac</description>
     </item>
     
     <item>
       <title>理解 Paxos（含伪代码）</title>
-      <link>https://tangwz.com/posts/202009-basic-paxos/basic-paxos/</link>
+      <link>https://tangwz.com/posts/202009-basic-paxos/</link>
       <pubDate>Tue, 29 Sep 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202009-basic-paxos/basic-paxos/</guid>
+      <guid>https://tangwz.com/posts/202009-basic-paxos/</guid>
       <description>Google Chubby 的作者 Mike Burrows 说过：There is only one consensus protocol, and that&amp;rsquo;s Paxos. 引言 # 上文我们</description>
     </item>
     
     <item>
       <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
-      <link>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</link>
+      <link>https://tangwz.com/posts/202009-git-merge-vs-rebase/</link>
       <pubDate>Sun, 13 Sep 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</guid>
+      <guid>https://tangwz.com/posts/202009-git-merge-vs-rebase/</guid>
       <description>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主</description>
     </item>
     
     <item>
       <title>分布式系统的核心：共识问题</title>
-      <link>https://tangwz.com/posts/202009-consensus/consensus/</link>
+      <link>https://tangwz.com/posts/202009-consensus/</link>
       <pubDate>Sun, 06 Sep 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202009-consensus/consensus/</guid>
+      <guid>https://tangwz.com/posts/202009-consensus/</guid>
       <description>混乱的“一致性”问题 # Consensus != Consistency 受翻译影响，网上很多讨论 paxos 或 raft 的</description>
     </item>
     

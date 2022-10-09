@@ -9,10 +9,10 @@
     <lastBuildDate>Sun, 13 Sep 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://tangwz.com/tags/git/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>同样更新分支，git merge 和 rebase 有什么区别？</title>
-      <link>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</link>
+      <link>https://tangwz.com/posts/202009-git-merge-vs-rebase/</link>
       <pubDate>Sun, 13 Sep 2020 00:00:00 +0000</pubDate>
       
-      <guid>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</guid>
+      <guid>https://tangwz.com/posts/202009-git-merge-vs-rebase/</guid>
       <description>最近在给 kubernetes 提交代码，k8s 社区要求非常严格，既要分支保持与主</description>
     </item>
     

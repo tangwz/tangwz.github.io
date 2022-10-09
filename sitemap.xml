@@ -175,7 +175,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202012-impl-basic-paxos/impl-basic-paxos/</loc>
+            <loc>https://tangwz.com/posts/202012-impl-basic-paxos/</loc>
             <lastmod>2020-12-13T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -184,7 +184,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202011-leveldb-index/leveldb-index/</loc>
+            <loc>https://tangwz.com/posts/202011-leveldb-index/</loc>
             <lastmod>2020-11-30T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -202,7 +202,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202011-disk/disk/</loc>
+            <loc>https://tangwz.com/posts/202011-disk/</loc>
             <lastmod>2020-11-26T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -211,7 +211,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202011-understanding-multi-paxos/understanding-multi-paxos/</loc>
+            <loc>https://tangwz.com/posts/202011-understanding-multi-paxos/</loc>
             <lastmod>2020-11-15T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -220,7 +220,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202010-paxos-exam/paxos-exam/</loc>
+            <loc>https://tangwz.com/posts/202010-paxos-exam/</loc>
             <lastmod>2020-10-26T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -229,7 +229,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202010-raft-exam/raft-exam/</loc>
+            <loc>https://tangwz.com/posts/202010-raft-exam/</loc>
             <lastmod>2020-10-26T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -238,7 +238,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202010-multi-paxos/multi-paxos/</loc>
+            <loc>https://tangwz.com/posts/202010-multi-paxos/</loc>
             <lastmod>2020-10-18T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -247,7 +247,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202009-basic-paxos/basic-paxos/</loc>
+            <loc>https://tangwz.com/posts/202009-basic-paxos/</loc>
             <lastmod>2020-09-29T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -265,7 +265,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202009-git-merge-vs-rebase/git-merge-vs-rebase/</loc>
+            <loc>https://tangwz.com/posts/202009-git-merge-vs-rebase/</loc>
             <lastmod>2020-09-13T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
@@ -274,7 +274,7 @@
   
     
       <url>
-            <loc>https://tangwz.com/posts/202009-consensus/consensus/</loc>
+            <loc>https://tangwz.com/posts/202009-consensus/</loc>
             <lastmod>2020-09-06T00:00:00+00:00</lastmod>
             <changefreq>daily</changefreq>
             <priority>0.5</priority>
